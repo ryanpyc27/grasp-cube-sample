@@ -4,6 +4,7 @@ Instantiates a empty environment with a floor, and attempts to place any given r
 
 import grasp_cube.agents.robots.so101.so_101
 import grasp_cube.envs.tasks.pick_cube_so101
+import grasp_cube.envs.tasks.lift_cube_so101
 from dataclasses import dataclass
 from typing import Annotated, Optional
 import tyro
@@ -25,7 +26,7 @@ class Args:
 
 def main(args: Args):
     env = gym.make(
-        "PickCubeSO101-v1",
+        "LiftCubeSO101-v1",
         obs_mode="none",
         reward_mode="none",
         enable_shadow=True,
@@ -41,7 +42,8 @@ def main(args: Args):
     env: BaseEnv = env.unwrapped
     print("Selected Robot has the following keyframes to view: ")
     print(env.agent.keyframes.keys())
-    env.agent.robot.set_qpos(env.agent.robot.qpos * 0)
+    env.agent.agents[0].robot.set_qpos(env.agent.agents[0].robot.qpos * 0)
+    env.agent.agents[1].robot.set_qpos(env.agent.agents[1].robot.qpos * 0)
     if env.gpu_sim_enabled:
         env.scene._gpu_apply_all()
         env.scene.px.gpu_update_articulation_kinematics()
