@@ -49,7 +49,7 @@ class LiftCubeSO101Env(BaseEnv):
     sensor_cam_target_pos = [0.316, 0.260, 0.01]
     human_cam_eye_pos = [-0.1, 0.3, 0.4]
     human_cam_target_pos = [-0.46, 0.0, 0.1]
-    max_goal_height = 0.07
+    max_goal_height = 0.10
     lock_z = True
 
     def __init__(self, *args, robot_uids=("so101", "so101"), robot_init_qpos_noise=0.02, **kwargs):
@@ -151,7 +151,7 @@ class LiftCubeSO101Env(BaseEnv):
             )
             goal_xyz[:, 0] += self.cube_spawn_center[0]
             goal_xyz[:, 1] += self.cube_spawn_center[1]
-            goal_xyz[:, 2] = torch.rand((b)) * self.max_goal_height + xyz[:, 2]
+            goal_xyz[:, 2] = torch.rand((b)) * self.max_goal_height + 0.05
             self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
 
     def _get_obs_extra(self, info: Dict):
@@ -170,39 +170,41 @@ class LiftCubeSO101Env(BaseEnv):
         return obs
 
     def evaluate(self):
-        is_obj_placed = (
-            torch.linalg.norm(self.goal_site.pose.p - self.cube.pose.p, axis=1)
-            <= self.goal_thresh
-        )
+        table_top_z = 0.01
+        is_high_enough = self.cube.pose.p[2] - table_top_z >= 0.05
         is_grasped = self.agent.agents[1].is_grasping(self.cube)
         is_robot_static = self.agent.agents[1].is_static(0.2)
         return {
-            "success": is_obj_placed & is_robot_static,
-            "is_obj_placed": is_obj_placed,
+            "success": is_high_enough & is_robot_static & is_grasped,
+            "is_high_enough": is_high_enough,
             "is_robot_static": is_robot_static,
             "is_grasped": is_grasped,
         }
 
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
+        # Approach the cube
         tcp_to_obj_dist = torch.linalg.norm(
             self.cube.pose.p - self.agent.agents[1].tcp_pose.p, axis=1
         )
         reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
         reward = reaching_reward
 
+        # Grasp the cube
         is_grasped = info["is_grasped"]
         reward += is_grasped
 
+        # Lift the cube
         obj_to_goal_dist = torch.linalg.norm(
             self.goal_site.pose.p - self.cube.pose.p, axis=1
         )
         place_reward = 1 - torch.tanh(5 * obj_to_goal_dist)
         reward += place_reward * is_grasped
 
+        # Stay static
         qvel = self.agent.agents[1].robot.get_qvel()
         qvel = qvel[..., :-1]
         static_reward = 1 - torch.tanh(5 * torch.linalg.norm(qvel, axis=1))
-        reward += static_reward * info["is_obj_placed"]
+        reward += static_reward * info["is_high_enough"]
 
         reward[info["success"]] = 5
         return reward
