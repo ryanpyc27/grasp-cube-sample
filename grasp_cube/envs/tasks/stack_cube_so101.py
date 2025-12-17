@@ -76,34 +76,21 @@ class LiftCubeSO101Env(BaseEnv):
             self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
         self.table_scene.build()
-        # visualize cube spawn region with a very thin, non-colliding cube
-        spawn_center = [self.cube_spawn_center[0], self.cube_spawn_center[1], self.cube_half_size]
-        spawn_half_size = [self.cube_spawn_half_size[0], self.cube_spawn_half_size[1], 1e-4]
-        self.cube_spawn_vis = actors.build_box(
-            self.scene,
-            half_sizes=spawn_half_size,
-            color=[0, 0, 1, 0.2],
-            name="cube_spawn_region",
-            add_collision=False,
-            initial_pose=sapien.Pose(p=spawn_center),
-        )
-        self.cube = actors.build_cube(
+
+        self.red_cube = actors.build_cube(
             self.scene,
             half_size=self.cube_half_size,
             color=[1, 0, 0, 1],
             name="cube",
             initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
         )
-        self.goal_site = actors.build_sphere(
+        self.green_cube = actors.build_cube(
             self.scene,
-            radius=self.goal_thresh,
+            half_size=self.cube_half_size,
             color=[0, 1, 0, 1],
-            name="goal_site",
-            body_type="kinematic",
-            add_collision=False,
-            initial_pose=sapien.Pose(),
+            name="cube",
+            initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
         )
-        self._hidden_objects.append(self.goal_site)
         
     def initialize_agent(self, env_idx: torch.Tensor):
         b = len(env_idx)
@@ -123,47 +110,63 @@ class LiftCubeSO101Env(BaseEnv):
         with torch.device(self.device):
             b = len(env_idx)
             self.table_scene.initialize(env_idx)
-            self.initialize_agent(env_idx)
-            xyz = torch.zeros((b, 3))
+            self.initialize_agent(env_idx)  
+            xyz_1 = torch.zeros((b, 3))
+            xyz_2 = torch.zeros((b, 3))
             half_xy = torch.tensor(self.cube_spawn_half_size, device = self.device)
-            xyz[:, :2] = (
+            xyz_1[:, :2] = (
                 torch.rand((b, 2)) * half_xy * 2
                 - half_xy
             )
-            xyz[:, 0] += self.cube_spawn_center[0]
-            xyz[:, 1] += self.cube_spawn_center[1]
+            xyz_1[:, 0] += self.cube_spawn_center[0]
+            xyz_1[:, 1] += self.cube_spawn_center[1]
+            xyz_1[:, 2] = self.cube_half_size
 
-            xyz[:, 2] = self.cube_half_size
-            qs = randomization.random_quaternions(b, lock_x=True, lock_y=True, lock_z=self.lock_z)
-            self.cube.set_pose(Pose.create_from_pq(xyz, qs))
-
-            goal_xyz = xyz
-            goal_xyz[:, 2] += 0.06
-            self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
+            xyz_2[:, :2] = (
+                torch.rand((b, 2)) * half_xy * 2
+                - half_xy
+            )
+            xyz_2[:, 0] += self.cube_spawn_center[0]
+            xyz_2[:, 1] += self.cube_spawn_center[1]
+            xyz_2[:, 2] = self.cube_half_size
+            qs_1 = randomization.random_quaternions(b, lock_x=True, lock_y=True, lock_z=self.lock_z)
+            qs_2 = randomization.random_quaternions(b, lock_x=True, lock_y=True, lock_z=self.lock_z)
+            self.red_cube.set_pose(Pose.create_from_pq(xyz_1, qs_1))
+            self.green_cube.set_pose(Pose.create_from_pq(xyz_2, qs_2))
+            
 
     def _get_obs_extra(self, info: Dict):
         # in reality some people hack is_grasped into observations by checking if the gripper can close fully or not
+        goal_pos = self.green_cube.pose.p.clone()
+        goal_pos[:, 2] += 2 * self.cube_half_size
+        
         obs = dict(
             is_grasped=info["is_grasped"],
             tcp_pose=self.agent.tcp_pose.raw_pose,
-            goal_pos=self.goal_site.pose.p,
+            goal_pos=goal_pos,
         )
         if "state" in self.obs_mode:
             obs.update(
-                obj_pose=self.cube.pose.raw_pose,
-                tcp_to_obj_pos=self.cube.pose.p - self.agent.tcp_pose.p,
-                obj_to_goal_pos=self.goal_site.pose.p - self.cube.pose.p,
+                red_cube_pos=self.red_cube.pose.raw_pose,
+                green_cube_pos=self.green_cube.pose.raw_pose,
+                tcp_to_obj_pos=self.red_cube.pose.p - self.agent.tcp_pose.p,
+                obj_to_goal_pos=goal_pos - self.red_cube.pose.p,
             )
         return obs
 
     def evaluate(self):
-        table_top_z = 0.01
-        is_high_enough = self.cube.pose.p[:, 2] - table_top_z >= 0.05
+        target_pos = self.green_cube.pose.p.clone()
+        target_pos[:, 2] += 2 * self.cube_half_size
+
+        stacking_dist = torch.linalg.norm(self.red_cube.pose.p - target_pos, axis=1)
+        is_stacked = stacking_dist < self.goal_thresh
+
+
         is_grasped = self.agent.is_grasping(self.cube)
         is_robot_static = self.agent.is_static(0.2)
         return {
-            "success": is_high_enough & is_robot_static & is_grasped,
-            "is_high_enough": is_high_enough,
+            "success": is_stacked & is_robot_static,
+            "is_stacked": is_stacked,
             "is_robot_static": is_robot_static,
             "is_grasped": is_grasped,
         }
@@ -172,7 +175,7 @@ class LiftCubeSO101Env(BaseEnv):
         is_grasped = info["is_grasped"]
         
         tcp_to_obj_dist = torch.linalg.norm(
-            self.cube.pose.p - self.agent.tcp_pose.p, axis=1
+            self.red_cube.pose.p - self.agent.tcp_pose.p, axis=1
         )
         reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
         reward = reaching_reward * (1 - is_grasped * 0.5)
@@ -184,22 +187,27 @@ class LiftCubeSO101Env(BaseEnv):
         lift_reward = torch.clamp(cube_height / 0.05, 0, 1)
         reward += lift_reward * is_grasped * 2
         
-        obj_to_goal_dist = torch.linalg.norm(
-            self.goal_site.pose.p - self.cube.pose.p, axis=1
+        xy_dist = torch.linalg.norm(
+            self.red_cube.pose.p[:, :2] - self.green_cube.pose.p[:, :2], axis=1
         )
-        place_reward = 1 - torch.tanh(10 * obj_to_goal_dist)
-        reward += place_reward * info["is_high_enough"]
+        xy_diff_reward = 1 - torch.tanh(10 * xy_dist)
+        reward += xy_diff_reward * is_grasped * 2
+        
+        z_diff_reward = 1 - torch.tanh(10 * torch.abs(self.red_cube.pose.p[:, 2] - self.green_cube.pose.p[:, 2]))
+        is_close_enough = xy_dist < 0.02
+        is_lifted = self.red_cube.pose.p[:, 2] > self.green_cube.pose.p[:, 2]
+        reward += z_diff_reward * is_close_enough * is_lifted * 2
         
         qvel = self.agent.robot.get_qvel()
         qvel = qvel[..., :-1]
         static_reward = 1 - torch.tanh(5 * torch.linalg.norm(qvel, axis=1))
-        reward += static_reward * info["is_high_enough"]
+        reward += static_reward * info["is_stackeds"]
         
-        reward[info["success"]] = 8
+        reward[info["success"]] = 10
         
         return reward
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        return self.compute_dense_reward(obs=obs, action=action, info=info) / 8
+        return self.compute_dense_reward(obs=obs, action=action, info=info) / 10
