@@ -13,6 +13,7 @@ from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv, VectorEnv
 
 import mani_skill.envs
 import grasp_cube.envs.tasks.pick_cube_so101
+import grasp_cube.envs.tasks.lift_cube_so101
 
 def cpu_env_factory(env_make_fn, idx: int, wrappers=[], record_video_path: str = None, record_episode_kwargs=dict(), logger: Logger = None):
 	def _init():

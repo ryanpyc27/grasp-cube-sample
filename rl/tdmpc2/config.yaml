@@ -75,12 +75,12 @@ dropout: 0.01
 simnorm_dim: 8
 
 # logging
-wandb_project:
-wandb_group: 
-wandb_name:
-wandb_entity: 
+wandb_project: EAI-project
+wandb_group: rl-test
+wandb_name: tdmpc2-LiftCube-v1
+wandb_entity: panyc23-tsinghua-university
 wandb_silent: false
-wandb: false # enable wandb
+wandb: true # enable wandb
 save_csv: true
 
 # misc

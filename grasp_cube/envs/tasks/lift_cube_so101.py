@@ -17,8 +17,6 @@ from mani_skill.utils.structs.pose import Pose
 from grasp_cube.agents.robots.so101.so_101 import SO101
 from grasp_cube.envs.tasks.table import MyTableBuilder
 
-from mani_skill.agents.multi_agent import MultiAgent
-
 
 @register_env("LiftCubeSO101-v1", max_episode_steps=50)
 class LiftCubeSO101Env(BaseEnv):
@@ -40,19 +38,19 @@ class LiftCubeSO101Env(BaseEnv):
     SUPPORTED_ROBOTS = [
         "so101",
     ]
-    agent: MultiAgent[SO101]
+    agent: SO101
     cube_half_size = 0.015
     goal_thresh = 0.015 * 1.25
     cube_spawn_half_size = (0.083, 0.082)
     cube_spawn_center = (0.479, 0.25)
     sensor_cam_eye_pos = [0.316, 0.260, 0.407 + 0.01]
     sensor_cam_target_pos = [0.316, 0.260, 0.01]
-    human_cam_eye_pos = [-0.1, 0.3, 0.4]
-    human_cam_target_pos = [-0.46, 0.0, 0.1]
+    human_cam_eye_pos = [-0.3, 0.6, 0.6]
+    human_cam_target_pos = [0.3, 0.3, 0.0]
     max_goal_height = 0.10
     lock_z = True
 
-    def __init__(self, *args, robot_uids=("so101", "so101"), robot_init_qpos_noise=0.02, **kwargs):
+    def __init__(self, *args, robot_uids="so101", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
@@ -71,8 +69,7 @@ class LiftCubeSO101Env(BaseEnv):
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
 
     def _load_agent(self, options: dict):
-        initial_agent_poses = [sapien.Pose(p=[0.189, 0, 0]), sapien.Pose(p=[0.481, 0.003, 0])]
-        super()._load_agent(options, initial_agent_poses)
+        super()._load_agent(options, sapien.Pose(p=[0.481, 0.003, 0]))
 
     def _load_scene(self, options: dict):
         self.table_scene = MyTableBuilder(
@@ -110,19 +107,15 @@ class LiftCubeSO101Env(BaseEnv):
         
     def initialize_agent(self, env_idx: torch.Tensor):
         b = len(env_idx)
-        qpos = np.array([0, 0, 0, np.pi / 2, 0, 0])
+        qpos = np.array([-np.pi / 2, 0, 0, np.pi / 2, 0, 0])
         qpos = (
             self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, (b, len(qpos))
             )
             + qpos
         )
-        self.agent.agents[0].reset(qpos)
-        self.agent.agents[0].robot.set_pose(
-            sapien.Pose([0.119, 0.003, 0])
-        )
-        self.agent.agents[1].reset(qpos)
-        self.agent.agents[1].robot.set_pose(
+        self.agent.reset(qpos)
+        self.agent.robot.set_pose(
             sapien.Pose([0.481, 0.003, 0])
         )
 
@@ -144,36 +137,30 @@ class LiftCubeSO101Env(BaseEnv):
             qs = randomization.random_quaternions(b, lock_x=True, lock_y=True, lock_z=self.lock_z)
             self.cube.set_pose(Pose.create_from_pq(xyz, qs))
 
-            goal_xyz = torch.zeros((b, 3))
-            goal_xyz[:, :2] = (
-                torch.rand((b, 2)) * half_xy * 2
-                - half_xy
-            )
-            goal_xyz[:, 0] += self.cube_spawn_center[0]
-            goal_xyz[:, 1] += self.cube_spawn_center[1]
-            goal_xyz[:, 2] = torch.rand((b)) * self.max_goal_height + 0.05
+            goal_xyz = xyz
+            goal_xyz[:, 2] += 0.06
             self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
 
     def _get_obs_extra(self, info: Dict):
         # in reality some people hack is_grasped into observations by checking if the gripper can close fully or not
         obs = dict(
             is_grasped=info["is_grasped"],
-            tcp_pose=self.agent.agents[1].tcp_pose.raw_pose,
+            tcp_pose=self.agent.tcp_pose.raw_pose,
             goal_pos=self.goal_site.pose.p,
         )
         if "state" in self.obs_mode:
             obs.update(
                 obj_pose=self.cube.pose.raw_pose,
-                tcp_to_obj_pos=self.cube.pose.p - self.agent.agents[1].tcp_pose.p,
+                tcp_to_obj_pos=self.cube.pose.p - self.agent.tcp_pose.p,
                 obj_to_goal_pos=self.goal_site.pose.p - self.cube.pose.p,
             )
         return obs
 
     def evaluate(self):
         table_top_z = 0.01
-        is_high_enough = self.cube.pose.p[2] - table_top_z >= 0.05
-        is_grasped = self.agent.agents[1].is_grasping(self.cube)
-        is_robot_static = self.agent.agents[1].is_static(0.2)
+        is_high_enough = self.cube.pose.p[:, 2] - table_top_z >= 0.05
+        is_grasped = self.agent.is_grasping(self.cube)
+        is_robot_static = self.agent.is_static(0.2)
         return {
             "success": is_high_enough & is_robot_static & is_grasped,
             "is_high_enough": is_high_enough,
@@ -182,34 +169,43 @@ class LiftCubeSO101Env(BaseEnv):
         }
 
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
-        # Approach the cube
+        is_grasped = info["is_grasped"]
+        
+        # 1. Approach the cube (只在未抓住时给满分，抓住后降低权重)
         tcp_to_obj_dist = torch.linalg.norm(
-            self.cube.pose.p - self.agent.agents[1].tcp_pose.p, axis=1
+            self.cube.pose.p - self.agent.tcp_pose.p, axis=1
         )
         reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
-        reward = reaching_reward
-
-        # Grasp the cube
-        is_grasped = info["is_grasped"]
-        reward += is_grasped
-
-        # Lift the cube
+        reward = reaching_reward * (1 - is_grasped * 0.5)  # 抓住后权重降为0.5
+        
+        # 2. Grasp the cube
+        reward += is_grasped  # +1 for grasping
+        
+        # 3. Lift the cube (直接奖励cube的高度)
+        table_top_z = 0.01
+        cube_height = self.cube.pose.p[:, 2] - table_top_z
+        lift_reward = torch.clamp(cube_height / 0.05, 0, 1)  # 0-5cm线性映射到0-1
+        reward += lift_reward * is_grasped * 2  # 抓住且举高，最多+2
+        
+        # 4. Reach goal position (fine-tuning)
         obj_to_goal_dist = torch.linalg.norm(
             self.goal_site.pose.p - self.cube.pose.p, axis=1
         )
-        place_reward = 1 - torch.tanh(5 * obj_to_goal_dist)
-        reward += place_reward * is_grasped
-
-        # Stay static
-        qvel = self.agent.agents[1].robot.get_qvel()
+        place_reward = 1 - torch.tanh(10 * obj_to_goal_dist)  # 增加系数让它更精确
+        reward += place_reward * info["is_high_enough"]  # 只在够高时才奖励精确度
+        
+        # 5. Stay static (only when high enough)
+        qvel = self.agent.robot.get_qvel()
         qvel = qvel[..., :-1]
         static_reward = 1 - torch.tanh(5 * torch.linalg.norm(qvel, axis=1))
         reward += static_reward * info["is_high_enough"]
-
-        reward[info["success"]] = 5
+        
+        # 6. Success bonus
+        reward[info["success"]] = 8  # 提高成功奖励，让成功状态更明显
+        
         return reward
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        return self.compute_dense_reward(obs=obs, action=action, info=info) / 5
+        return self.compute_dense_reward(obs=obs, action=action, info=info) / 8
