@@ -1,0 +1,3 @@
+import sapien
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InJ5YW5weWNAbWl0LmVkdSIsImlwIjoiMTcyLjIwLjAuMSIsInByaXZpbGVnZSI6MSwiZmlsZU9ubHkiOnRydWUsImlhdCI6MTc2NjExMzkzMiwiZXhwIjoxNzk3NjQ5OTMyfQ.JkZ0OHuts5xLZMGwEpz223DAaqvfAmoRnNvPdkvAt-8"
+urdf_file = sapien.asset.download_partnet_mobility(100664, token)

@@ -18,8 +18,8 @@ from grasp_cube.agents.robots.so101.so_101 import SO101
 from grasp_cube.envs.tasks.table import MyTableBuilder
 
 
-@register_env("LiftCubeSO101-v1", max_episode_steps=50)
-class LiftCubeSO101Env(BaseEnv):
+@register_env("StackCubeSO101-v1", max_episode_steps=50)
+class StackCubeSO101Env(BaseEnv):
     """
     **Task Description:**
     A simple task where the objective is to grasp a red cube and move it to a target goal position. This is also the *baseline* task to test whether a robot with manipulation
@@ -81,14 +81,14 @@ class LiftCubeSO101Env(BaseEnv):
             self.scene,
             half_size=self.cube_half_size,
             color=[1, 0, 0, 1],
-            name="cube",
+            name="red_cube",
             initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
         )
         self.green_cube = actors.build_cube(
             self.scene,
             half_size=self.cube_half_size,
             color=[0, 1, 0, 1],
-            name="cube",
+            name="green_cube",
             initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
         )
         
@@ -162,7 +162,7 @@ class LiftCubeSO101Env(BaseEnv):
         is_stacked = stacking_dist < self.goal_thresh
 
 
-        is_grasped = self.agent.is_grasping(self.cube)
+        is_grasped = self.agent.is_grasping(self.red_cube)
         is_robot_static = self.agent.is_static(0.2)
         return {
             "success": is_stacked & is_robot_static,
@@ -183,7 +183,7 @@ class LiftCubeSO101Env(BaseEnv):
         reward += is_grasped
         
         table_top_z = 0.01
-        cube_height = self.cube.pose.p[:, 2] - table_top_z
+        cube_height = self.red_cube.pose.p[:, 2] - table_top_z
         lift_reward = torch.clamp(cube_height / 0.05, 0, 1)
         reward += lift_reward * is_grasped * 2
         
@@ -201,7 +201,7 @@ class LiftCubeSO101Env(BaseEnv):
         qvel = self.agent.robot.get_qvel()
         qvel = qvel[..., :-1]
         static_reward = 1 - torch.tanh(5 * torch.linalg.norm(qvel, axis=1))
-        reward += static_reward * info["is_stackeds"]
+        reward += static_reward * info["is_stacked"]
         
         reward[info["success"]] = 10
         

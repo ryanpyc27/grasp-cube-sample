@@ -6,18 +6,26 @@ from envs.wrappers.tensor import TensorWrapper
 from envs.wrappers.record_episode import RecordEpisodeWrapper
 from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from mani_skill.utils.wrappers.gymnasium import CPUGymWrapper
-from mani_skill.utils.wrappers import FlattenRGBDObservationWrapper
+from mani_skill.utils.wrappers import FlattenRGBDObservationWrapper, FlattenActionSpaceWrapper
 from mani_skill.utils import gym_utils
 from functools import partial
 from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv, VectorEnv
+from gymnasium.spaces import Dict as DictSpace
 
 import mani_skill.envs
 import grasp_cube.envs.tasks.pick_cube_so101
 import grasp_cube.envs.tasks.lift_cube_so101
+import grasp_cube.envs.tasks.stack_cube_so101
+import grasp_cube.envs.tasks.sort_cube_so101
 
 def cpu_env_factory(env_make_fn, idx: int, wrappers=[], record_video_path: str = None, record_episode_kwargs=dict(), logger: Logger = None):
 	def _init():
 		env = env_make_fn()
+		
+		# Flatten Dict action space for multi-agent environments
+		if isinstance(env.action_space, DictSpace):
+			env = FlattenActionSpaceWrapper(env)
+		
 		for wrapper in wrappers:
 			env = wrapper(env)
 		env = CPUGymWrapper(env, ignore_terminations=True, record_metrics=True)
@@ -80,6 +88,11 @@ def make_envs(cfg, num_envs, record_video_path, is_eval, logger):
 		env = env_make_fn(num_envs=num_envs)
 		control_mode = env.control_mode
 		max_episode_steps = gym_utils.find_max_episode_steps_value(env)
+		
+		# Flatten Dict action space for multi-agent environments
+		if isinstance(env.action_space, DictSpace):
+			env = FlattenActionSpaceWrapper(env)
+		
 		if cfg['obs'] == 'rgb':
 			env = FlattenRGBDObservationWrapper(env, rgb=True, depth=False, state=cfg.include_state)
 			env = PixelWrapper(cfg, env, num_envs)
