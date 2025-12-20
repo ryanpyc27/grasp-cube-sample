@@ -69,7 +69,10 @@ class StackCubeSO101Env(BaseEnv):
         return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
 
     def _load_agent(self, options: dict):
-        super()._load_agent(options, sapien.Pose(p=[0.481, 0.003, 0]))
+        # Rotate robot base by 90 degrees (pi/2) around z-axis
+        # Sapien quaternion format is [w, x, y, z]
+        q_rotation = [0.7071068, 0, 0, 0.7071068]  # quaternion for 90 degree rotation around z
+        super()._load_agent(options, sapien.Pose(p=[0.481, 0.003, 0], q=q_rotation))
 
     def _load_scene(self, options: dict):
         self.table_scene = MyTableBuilder(
@@ -94,7 +97,8 @@ class StackCubeSO101Env(BaseEnv):
         
     def initialize_agent(self, env_idx: torch.Tensor):
         b = len(env_idx)
-        qpos = np.array([-np.pi / 2, 0, 0, np.pi / 2, 0, 0])
+        # Changed first joint from -pi/2 to 0 since we now rotate the base itself
+        qpos = np.array([0, 0, 0, np.pi / 2, 0, 0])
         qpos = (
             self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, (b, len(qpos))
@@ -102,8 +106,11 @@ class StackCubeSO101Env(BaseEnv):
             + qpos
         )
         self.agent.reset(qpos)
+        # Rotate robot base by 90 degrees (pi/2) around z-axis
+        # Sapien quaternion format is [w, x, y, z]
+        q_rotation = [0.7071068, 0, 0, 0.7071068]  # quaternion for 90 degree rotation around z
         self.agent.robot.set_pose(
-            sapien.Pose([0.481, 0.003, 0])
+            sapien.Pose([0.481, 0.003, 0], q=q_rotation)
         )
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):

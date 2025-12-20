@@ -180,24 +180,16 @@ class SortCubeSO101Env(BaseEnv):
 
     def evaluate(self):
         # Check if red cube is in red target region
-        red_target = torch.tensor(
-            [[self.red_cube_target_region_center[0], self.red_cube_target_region_center[1], self.cube_half_size]], 
-            device=self.device
-        ).repeat(self.num_envs, 1)
-        red_dist = torch.linalg.norm(self.red_cube.pose.p - red_target, axis=1)
-        is_red_sorted = red_dist < self.goal_thresh
+        red_target_region_x = [self.red_cube_target_region_center[0] - self.target_region_half_size[0], self.red_cube_target_region_center[0] + self.target_region_half_size[0]]
+        red_target_region_y = [self.red_cube_target_region_center[1] - self.target_region_half_size[1], self.red_cube_target_region_center[1] + self.target_region_half_size[1]]
+        is_red_in_target_region = (self.red_cube.pose.p[:, 0] > red_target_region_x[0]) & (self.red_cube.pose.p[:, 0] < red_target_region_x[1]) & (self.red_cube.pose.p[:, 1] > red_target_region_y[0]) & (self.red_cube.pose.p[:, 1] < red_target_region_y[1])
+        is_red_sorted = is_red_in_target_region
         
         # Check if green cube is in green target region
-        green_target = torch.tensor(
-            [[self.green_cube_target_region_center[0], self.green_cube_target_region_center[1], self.cube_half_size]], 
-            device=self.device
-        ).repeat(self.num_envs, 1)
-        green_dist = torch.linalg.norm(self.green_cube.pose.p - green_target, axis=1)
-        is_green_sorted = green_dist < self.goal_thresh
-        
-        # Check grasping for each robot
-        is_red_grasped = self.agent.agents[0].is_grasping(self.red_cube)
-        is_green_grasped = self.agent.agents[1].is_grasping(self.green_cube)
+        green_target_region_x = [self.green_cube_target_region_center[0] - self.target_region_half_size[0], self.green_cube_target_region_center[0] + self.target_region_half_size[0]]
+        green_target_region_y = [self.green_cube_target_region_center[1] - self.target_region_half_size[1], self.green_cube_target_region_center[1] + self.target_region_half_size[1]]
+        is_green_in_target_region = (self.green_cube.pose.p[:, 0] > green_target_region_x[0]) & (self.green_cube.pose.p[:, 0] < green_target_region_x[1]) & (self.green_cube.pose.p[:, 1] > green_target_region_y[0]) & (self.green_cube.pose.p[:, 1] < green_target_region_y[1])
+        is_green_sorted = is_green_in_target_region
         
         # Check if both robots are static
         is_robot1_static = self.agent.agents[0].is_static(0.2)
@@ -209,73 +201,94 @@ class SortCubeSO101Env(BaseEnv):
             "is_red_sorted": is_red_sorted,
             "is_green_sorted": is_green_sorted,
             "is_robots_static": is_robots_static,
-            "is_red_grasped": is_red_grasped,
-            "is_green_grasped": is_green_grasped,
         }
 
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
-        # Target positions
-        red_target = torch.tensor(
-            [[self.red_cube_target_region_center[0], self.red_cube_target_region_center[1], self.cube_half_size]], 
-            device=self.device
-        ).repeat(self.num_envs, 1)
-        green_target = torch.tensor(
-            [[self.green_cube_target_region_center[0], self.green_cube_target_region_center[1], self.cube_half_size]], 
-            device=self.device
-        ).repeat(self.num_envs, 1)
+        """
+        Dense reward for dual-arm cube sorting task.
         
-        # === Robot 1 (Red cube) rewards ===
-        robot1_tcp = self.agent.agents[0].tcp_pose.p
-        is_red_grasped = info["is_red_grasped"]
+        Design principle: 
+        - Robot1 (right side) is responsible for moving RED cube to red target region
+        - Robot2 (left side) is responsible for moving GREEN cube to green target region
+        - Robots can either grasp or push the cubes (no grasping required)
         
-        # 1. Reaching reward for robot 1
-        tcp1_to_red_dist = torch.linalg.norm(self.red_cube.pose.p - robot1_tcp, axis=1)
-        reaching_reward_1 = 1 - torch.tanh(5 * tcp1_to_red_dist)
-        reward_1 = reaching_reward_1 * (1 - is_red_grasped * 0.5)
+        This assignment is based on workspace reachability of each arm.
+        """
+        reward = torch.zeros(self.num_envs, device=self.device)
         
-        # 2. Grasping reward for robot 1
-        reward_1 += is_red_grasped
+        target_green_region_x = self.green_cube_target_region_center[0] + self.target_region_half_size[0]
+        target_red_region_x = self.red_cube_target_region_center[0] - self.target_region_half_size[0]
         
-        # 3. Moving to target reward for robot 1
-        red_to_target_dist = torch.linalg.norm(self.red_cube.pose.p - red_target, axis=1)
-        place_reward_1 = 1 - torch.tanh(5 * red_to_target_dist)
-        reward_1 += place_reward_1 * is_red_grasped * 2
+        # Get TCP positions for both robots
+        robot1_tcp_pos = self.agent.agents[0].tcp_pose.p  # Robot1 handles red cube
+        robot2_tcp_pos = self.agent.agents[1].tcp_pose.p  # Robot2 handles green cube
         
-        # 4. Sorting success reward for robot 1
-        reward_1 += info["is_red_sorted"] * 2
+        # Get cube positions
+        red_cube_pos = self.red_cube.pose.p
+        green_cube_pos = self.green_cube.pose.p
         
-        # === Robot 2 (Green cube) rewards ===
-        robot2_tcp = self.agent.agents[1].tcp_pose.p
-        is_green_grasped = info["is_green_grasped"]
+        # ============ Robot1 - Red Cube Rewards ============
+        # Stage 1: Reaching reward - Robot1 approaches red cube (to push or grasp)
+        robot1_to_red_dist = torch.linalg.norm(red_cube_pos - robot1_tcp_pos, axis=1)
+        reaching_reward_red = 1 - torch.tanh(5 * robot1_to_red_dist)
         
-        # 1. Reaching reward for robot 2
-        tcp2_to_green_dist = torch.linalg.norm(self.green_cube.pose.p - robot2_tcp, axis=1)
-        reaching_reward_2 = 1 - torch.tanh(5 * tcp2_to_green_dist)
-        reward_2 = reaching_reward_2 * (1 - is_green_grasped * 0.5)
+        # Stage 2: Progress reward - Red cube moves towards red target
+        red_to_target_dist = torch.max(red_cube_pos[:, 0] - target_red_region_x, 0.0)
+        progress_reward_red = 1 - torch.tanh(5 * red_to_target_dist)
         
-        # 2. Grasping reward for robot 2
-        reward_2 += is_green_grasped
+        # Combine: encourage approaching cube first, then moving cube to target
+        # When cube is far from target, prioritize reaching; when close, prioritize progress
+        reward += reaching_reward_red * 1.0 + progress_reward_red * 3.0
         
-        # 3. Moving to target reward for robot 2
-        green_to_target_dist = torch.linalg.norm(self.green_cube.pose.p - green_target, axis=1)
-        place_reward_2 = 1 - torch.tanh(5 * green_to_target_dist)
-        reward_2 += place_reward_2 * is_green_grasped * 2
+        # Stage 3: Placement bonus - Red cube at target
+        is_red_at_target = (red_cube_pos[:, 0] > target_red_region_x)
+        reward += is_red_at_target * 3.0
         
-        # 4. Sorting success reward for robot 2
-        reward_2 += info["is_green_sorted"] * 2
+        # ============ Robot2 - Green Cube Rewards ============
+        # Stage 1: Reaching reward - Robot2 approaches green cube (to push or grasp)
+        robot2_to_green_dist = torch.linalg.norm(green_cube_pos - robot2_tcp_pos, axis=1)
+        reaching_reward_green = 1 - torch.tanh(5 * robot2_to_green_dist)
         
-        # === Combined rewards ===
-        reward = reward_1 + reward_2
+        # Stage 2: Progress reward - Green cube moves towards green target
+        green_to_target_dist = torch.max(green_cube_pos[:, 0] - target_green_region_x, 0.0)
+        progress_reward_green = 1 - torch.tanh(5 * green_to_target_dist)
         
-        # Static reward when both cubes are sorted
-        reward += info["is_robots_static"] * (info["is_red_sorted"] & info["is_green_sorted"])
+        # Combine: encourage approaching cube first, then moving cube to target
+        reward += reaching_reward_green * 1.0 + progress_reward_green * 3.0
         
-        # Success bonus
-        reward[info["success"]] = 20
+        # Stage 3: Placement bonus - Green cube at target
+        is_green_at_target = (green_cube_pos[:, 0] < target_green_region_x).float()
+        reward += is_green_at_target * 3.0
+        
+        # ============ Penalty for wrong robot-cube assignment ============
+        # Penalize Robot1 for approaching green cube (should focus on red cube)
+        # Use smaller coefficient to ensure correct approach still yields positive net reward
+        # Max penalty = 0.1 * 1.0 = 0.1, while correct reaching reward can be up to 1.0
+        robot1_to_green_dist = torch.linalg.norm(green_cube_pos - robot1_tcp_pos, axis=1)
+        wrong_reach_penalty_1 = torch.clamp(0.1 - robot1_to_green_dist, min=0) * 3.0
+        reward -= wrong_reach_penalty_1
+        
+        # Penalize Robot2 for approaching red cube (should focus on green cube)
+        robot2_to_red_dist = torch.linalg.norm(red_cube_pos - robot2_tcp_pos, axis=1)
+        wrong_reach_penalty_2 = torch.clamp(0.1 - robot2_to_red_dist, min=0) * 3.0
+        reward -= wrong_reach_penalty_2
+        
+        # ============ Static reward when both cubes are sorted ============
+        both_sorted = info["is_red_sorted"] & info["is_green_sorted"]
+        qvel1 = self.agent.agents[0].robot.get_qvel()[..., :-1]
+        qvel2 = self.agent.agents[1].robot.get_qvel()[..., :-1]
+        static_reward_1 = 1 - torch.tanh(5 * torch.linalg.norm(qvel1, axis=1))
+        static_reward_2 = 1 - torch.tanh(5 * torch.linalg.norm(qvel2, axis=1))
+        reward += (static_reward_1 + static_reward_2) * both_sorted.float()
+        
+        # ============ Success bonus ============
+        reward[info["success"]] = 20.0
         
         return reward
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        return self.compute_dense_reward(obs=obs, action=action, info=info) / 20
+        # Max reward is approximately 20 (success bonus)
+        # Normalize to [0, 1] range
+        return self.compute_dense_reward(obs=obs, action=action, info=info) / 20.0
