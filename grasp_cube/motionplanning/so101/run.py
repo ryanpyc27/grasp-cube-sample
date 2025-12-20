@@ -10,12 +10,16 @@ import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
 import os.path as osp
+import traceback
+from gymnasium.spaces import Dict as DictSpace
 from mani_skill.utils.wrappers.record import RecordEpisode
+from mani_skill.utils.wrappers import FlattenActionSpaceWrapper
 from mani_skill.trajectory.merge_trajectory import merge_trajectories
-from grasp_cube.motionplanning.so101.solutions import solvePickCube
+from grasp_cube.motionplanning.so101.solutions import solvePickCube, solveSortCubes
 
 MP_SOLUTIONS = {
     "PickCubeSO101-v1": solvePickCube,
+    "SortCubeSO101-v1": solveSortCubes,
 }
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
@@ -49,6 +53,11 @@ def _main(args, proc_id: int = 0, start_seed: int = 9) -> str:
     if env_id not in MP_SOLUTIONS:
         raise RuntimeError(f"No already written motion planning solutions for {env_id}. Available options are {list(MP_SOLUTIONS.keys())}")
 
+    # Flatten Dict action space for multi-agent environments before recording
+    if isinstance(env.action_space, DictSpace):
+        print(f"Detected multi-agent environment. Flattening action space...")
+        env = FlattenActionSpaceWrapper(env)
+
     if not args.traj_name:
         new_traj_name = time.strftime("%Y%m%d_%H%M%S")
     else:
@@ -80,11 +89,16 @@ def _main(args, proc_id: int = 0, start_seed: int = 9) -> str:
             res = solve(env, seed=seed, debug=False, vis=True if args.vis else False)
         except Exception as e:
             print(f"Cannot find valid solution because of an error in motion planning solution: {e}")
+            print("Full traceback:")
+            traceback.print_exc()
             res = -1
     
-        if res == -1:
+        if res == -1 or not isinstance(res, tuple):
             success = False
             failed_motion_plans += 1
+            # Use default episode length for failed attempts
+            if len(solution_episode_lengths) == 0:
+                solution_episode_lengths.append(0)
         else:
             success = res[-1]["success"].item()
             elapsed_steps = res[-1]["elapsed_steps"].item()

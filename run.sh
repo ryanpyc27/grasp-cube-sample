@@ -1,0 +1,1 @@
+python -m grasp_cube.motionplanning.so101.run -n 10 -e SortCubeSO101-v1 --save-video

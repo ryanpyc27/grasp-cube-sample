@@ -48,56 +48,56 @@ class MyTableBuilder(SceneBuilder):
         # longband_up
         longband_builder_up = self.scene.create_actor_builder()
         longband_builder_up.add_box_visual(half_size=[0.28, 0.009, 0.01], material=[0, 0, 0])
-        longband_builder_up.add_box_collision(half_size=[0.28, 0.009, 0.01])
+        # longband_builder_up.add_box_collision(half_size=[0.28, 0.009, 0.01])
         longband_builder_up.initial_pose = sapien.Pose([0.30, 0.341, table_height + 0.005])
         longband_up = longband_builder_up.build_static(name="longband_up")
         
         # longband_down
         longband_builder_down = self.scene.create_actor_builder()
         longband_builder_down.add_box_visual(half_size=[0.28, 0.009, 0.01], material=[0, 0, 0])
-        longband_builder_down.add_box_collision(half_size=[0.28, 0.009, 0.01])
+        # longband_builder_down.add_box_collision(half_size=[0.28, 0.009, 0.01])
         longband_builder_down.initial_pose = sapien.Pose([0.30, 0.159, table_height + 0.005])
         longband_down = longband_builder_down.build_static(name="longband_down")
 
         # shortband_up1
         shortband_builder_up1 = self.scene.create_actor_builder()
         shortband_builder_up1.add_box_visual(half_size=[0.009, 0.082, 0.01], material=[0, 0, 0])
-        shortband_builder_up1.add_box_collision(half_size=[0.009, 0.082, 0.01])
+        # shortband_builder_up1.add_box_collision(half_size=[0.009, 0.082, 0.01])
         shortband_builder_up1.initial_pose = sapien.Pose([0.029, 0.25, table_height + 0.005])
         shortband_up1 = shortband_builder_up1.build_static(name="shortband_up1")
         
         # shortband_up2
         shortband_builder_up2 = self.scene.create_actor_builder()
         shortband_builder_up2.add_box_visual(half_size=[0.009, 0.082, 0.01], material=[0, 0, 0])
-        shortband_builder_up2.add_box_collision(half_size=[0.009, 0.082, 0.01])
+        # shortband_builder_up2.add_box_collision(half_size=[0.009, 0.082, 0.01])
         shortband_builder_up2.initial_pose = sapien.Pose([0.213, 0.25, table_height + 0.005])
         shortband_up2 = shortband_builder_up2.build_static(name="shortband_up2")
         
         # shortband_up3
         shortband_builder_up3 = self.scene.create_actor_builder()
         shortband_builder_up3.add_box_visual(half_size=[0.009, 0.082, 0.01], material=[0, 0, 0])
-        shortband_builder_up3.add_box_collision(half_size=[0.009, 0.082, 0.01])
+        # shortband_builder_up3.add_box_collision(half_size=[0.009, 0.082, 0.01])
         shortband_builder_up3.initial_pose = sapien.Pose([0.387, 0.25, table_height + 0.005])
         shortband_up3 = shortband_builder_up3.build_static(name="shortband_up3")
         
         # shortband_up4
         shortband_builder_up4 = self.scene.create_actor_builder()
         shortband_builder_up4.add_box_visual(half_size=[0.009, 0.082, 0.01], material=[0, 0, 0])
-        shortband_builder_up4.add_box_collision(half_size=[0.009, 0.082, 0.01])
+        # shortband_builder_up4.add_box_collision(half_size=[0.009, 0.082, 0.01])
         shortband_builder_up4.initial_pose = sapien.Pose([0.571, 0.25, table_height + 0.005])
         shortband_up4 = shortband_builder_up4.build_static(name="shortband_up4")
 
         # shortband_down1
         shortband_builder_down1 = self.scene.create_actor_builder()
         shortband_builder_down1.add_box_visual(half_size=[0.009, 0.075, 0.01], material=[0, 0, 0])
-        shortband_builder_down1.add_box_collision(half_size=[0.009, 0.075, 0.01])
+        # shortband_builder_down1.add_box_collision(half_size=[0.009, 0.075, 0.01])
         shortband_builder_down1.initial_pose = sapien.Pose([0.213, 0.075, table_height + 0.005])
         shortband_down1 = shortband_builder_down1.build_static(name="shortband_down1")
         
         # shortband_down2
         shortband_builder_down2 = self.scene.create_actor_builder()
         shortband_builder_down2.add_box_visual(half_size=[0.009, 0.075, 0.01], material=[0, 0, 0])
-        shortband_builder_down2.add_box_collision(half_size=[0.009, 0.075, 0.01])
+        # shortband_builder_down2.add_box_collision(half_size=[0.009, 0.075, 0.01])
         shortband_builder_down2.initial_pose = sapien.Pose([0.387, 0.075, table_height + 0.005])
         shortband_down2 = shortband_builder_down2.build_static(name="shortband_down2")
 
