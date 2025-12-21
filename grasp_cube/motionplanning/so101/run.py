@@ -34,7 +34,7 @@ def parse_args(args=None):
     parser.add_argument("--save-video", action="store_true", help="whether or not to save videos locally")
     parser.add_argument("--traj-name", type=str, help="The name of the trajectory .h5 file that will be created.")
     parser.add_argument("--shader", default="default", type=str, help="Change shader used for rendering. Default is 'default' which is very fast. Can also be 'rt' for ray tracing and generating photo-realistic renders. Can also be 'rt-fast' for a faster but lower quality ray-traced renderer")
-    parser.add_argument("--record-dir", type=str, default="demos", help="where to save the recorded trajectories")
+    parser.add_argument("--record-dir", type=str, default="/root/autodl-tmp/demos", help="where to save the recorded trajectories")
     parser.add_argument("--num-procs", type=int, default=1, help="Number of processes to use to help parallelize the trajectory replay process. This uses CPU multiprocessing and only works with the CPU simulation backend at the moment.")
     return parser.parse_args()
 
@@ -65,9 +65,14 @@ def _main(args, proc_id: int = 0, start_seed: int = 9) -> str:
 
     if args.num_procs > 1:
         new_traj_name = new_traj_name + "." + str(proc_id)
+    
+    # Ensure output directory exists
+    output_dir = osp.join(args.record_dir, env_id, "motionplanning")
+    os.makedirs(output_dir, exist_ok=True)
+    
     env = RecordEpisode(
         env,
-        output_dir=osp.join(args.record_dir, env_id, "motionplanning"),
+        output_dir=output_dir,
         trajectory_name=new_traj_name, save_video=args.save_video,
         source_type="motionplanning",
         source_desc="official motion planning solution from ManiSkill contributors",

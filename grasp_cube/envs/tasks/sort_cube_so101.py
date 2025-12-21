@@ -190,6 +190,21 @@ class SortCubeSO101Env(BaseEnv):
         is_green_in_target_region = (self.green_cube.pose.p[:, 0] > green_target_region_x[0]) & (self.green_cube.pose.p[:, 0] < green_target_region_x[1]) & (self.green_cube.pose.p[:, 1] > green_target_region_y[0]) & (self.green_cube.pose.p[:, 1] < green_target_region_y[1])
         is_green_sorted = is_green_in_target_region
         
+        # Check if cubes are "placed" (close enough to target, more lenient than sorted)
+        # This is used for reward shaping to allow robots to disengage earlier
+        red_target_pos = torch.tensor(
+            [[self.red_cube_target_region_center[0], self.red_cube_target_region_center[1], self.cube_half_size]], 
+            device=self.device
+        ).repeat(self.num_envs, 1)
+        green_target_pos = torch.tensor(
+            [[self.green_cube_target_region_center[0], self.green_cube_target_region_center[1], self.cube_half_size]], 
+            device=self.device
+        ).repeat(self.num_envs, 1)
+        
+        placed_threshold = max(self.target_region_half_size) * 0.9  # More lenient than sorted
+        red_placed = torch.linalg.norm(self.red_cube.pose.p - red_target_pos, axis=1) < placed_threshold
+        green_placed = torch.linalg.norm(self.green_cube.pose.p - green_target_pos, axis=1) < placed_threshold
+        
         # Check if both robots are static
         is_robot1_static = self.agent.agents[0].is_static(0.2)
         is_robot2_static = self.agent.agents[1].is_static(0.2)
@@ -199,113 +214,181 @@ class SortCubeSO101Env(BaseEnv):
             "success": is_red_sorted & is_green_sorted & is_robots_static,
             "is_red_sorted": is_red_sorted,
             "is_green_sorted": is_green_sorted,
+            "red_placed": red_placed,
+            "green_placed": green_placed,
             "is_robots_static": is_robots_static,
         }
 
+    def _compute_reach_reward(self, cube_pos: torch.Tensor, tcp_positions: list) -> torch.Tensor:
+        """
+        Compute reach reward for a cube using minimum distance from any TCP.
+        
+        Args:
+            cube_pos: Cube position tensor [batch_size, 3]
+            tcp_positions: List of TCP position tensors, each [batch_size, 3]
+            
+        Returns:
+            Reach reward tensor [batch_size]
+        """
+        # Compute distances from all TCPs to the cube
+        distances = []
+        for tcp_pos in tcp_positions:
+            dist = torch.linalg.norm(cube_pos - tcp_pos, axis=1)
+            distances.append(dist)
+        
+        # Use minimum distance (closest TCP to cube)
+        min_dist = torch.minimum(distances[0], distances[1])
+        
+        # Tanh-based reach reward: higher when closer, saturates smoothly
+        reach_reward = 1.0 - torch.tanh(5.0 * min_dist)
+        return reach_reward
+    
+    def _compute_placement_reward(
+        self, 
+        cube_pos: torch.Tensor, 
+        target_center: tuple, 
+        target_half_size: tuple
+    ) -> torch.Tensor:
+        """
+        Compute placement reward based on how close cube is to target region.
+        
+        Args:
+            cube_pos: Cube position tensor [batch_size, 3]
+            target_center: Target region center (x, y)
+            target_half_size: Target region half size (x, y)
+            
+        Returns:
+            Placement reward tensor [batch_size]
+        """
+        # Compute distance to target center in XY plane
+        target_xy = torch.tensor(
+            [[target_center[0], target_center[1]]], 
+            device=self.device
+        ).repeat(self.num_envs, 1)
+        
+        xy_dist = torch.linalg.norm(cube_pos[:, :2] - target_xy, axis=1)
+        
+        # Normalize by target region size (use max half_size as normalization)
+        max_half_size = max(target_half_size)
+        normalized_dist = xy_dist / (max_half_size + 1e-6)
+        
+        # Reward decreases smoothly as distance increases
+        placement_reward = 1.0 - torch.tanh(3.0 * normalized_dist)
+        return placement_reward
+    
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
         """
         Dense reward for dual-arm cube sorting task.
         
-        Design principle: 
-        - Robot1 (right side) is responsible for moving RED cube to red target region
-        - Robot2 (left side) is responsible for moving GREEN cube to green target region
-        - Robots can either grasp or push the cubes (no grasping required)
+        Design principles:
+        1. Flexible assignment: Both robots can reach either cube, using minimum distance
+        2. Soft choose-one: Use maximum of reach terms to avoid both arms going to midpoint
+        3. Preserve progress: Once a cube is sorted, keep its reach term at maximum
+        4. Placement guidance: Additional reward for moving cubes toward target regions
         
-        Key fix for value collapse:
-        - Reduce intermediate rewards to make success bonus more significant
-        - Add milestone bonuses to guide learning
+        This design allows the policy to learn optimal robot-cube assignments naturally.
         """
         reward = torch.zeros(self.num_envs, device=self.device)
         
-        target_green_region_x = self.green_cube_target_region_center[0] + self.target_region_half_size[0]
-        target_red_region_x = self.red_cube_target_region_center[0] - self.target_region_half_size[0]
-        
         # Get TCP positions for both robots
-        robot1_tcp_pos = self.agent.agents[0].tcp_pose.p  # Robot1 handles red cube
-        robot2_tcp_pos = self.agent.agents[1].tcp_pose.p  # Robot2 handles green cube
+        left_tcp = self.agent.agents[0].tcp_pose.p
+        right_tcp = self.agent.agents[1].tcp_pose.p
+        tcp_positions = [left_tcp, right_tcp]
         
         # Get cube positions
         red_cube_pos = self.red_cube.pose.p
         green_cube_pos = self.green_cube.pose.p
         
-        # ============ Robot1 - Red Cube Rewards ============
-        # Stage 1: Position reward - Robot1 should be on LEFT side of red cube
-        position_offset_red = red_cube_pos[:, 0] - robot1_tcp_pos[:, 0]
-        position_reward_red = torch.tanh(3 * torch.clamp(position_offset_red, min=0)) * 0.5  # Reduced weight
+        # ============ Reaching Rewards ============
+        # Compute distances from both TCPs to both cubes
+        left_to_red = torch.linalg.norm(red_cube_pos - left_tcp, axis=1)
+        right_to_red = torch.linalg.norm(red_cube_pos - right_tcp, axis=1)
+        left_to_green = torch.linalg.norm(green_cube_pos - left_tcp, axis=1)
+        right_to_green = torch.linalg.norm(green_cube_pos - right_tcp, axis=1)
         
-        # Stage 2: Reaching reward - Robot1 approaches red cube
-        robot1_to_red_dist = torch.linalg.norm(red_cube_pos - robot1_tcp_pos, axis=1)
-        reaching_reward_red = (1 - torch.tanh(5 * robot1_to_red_dist)) * 0.5  # Reduced weight
+        # Minimum distance to each cube (from either robot)
+        red_dist = torch.minimum(left_to_red, right_to_red)
+        green_dist = torch.minimum(left_to_green, right_to_green)
         
-        # Stage 3: Progress reward - Red cube moves towards target
-        red_initial_x = self.cube_spawn_center[0]  # Initial spawn center
-        red_progress = (red_cube_pos[:, 0] - red_initial_x) / (target_red_region_x - red_initial_x)
-        red_progress = torch.clamp(red_progress, 0, 1)
-        progress_reward_red = red_progress * 1.5  # Reward actual movement
+        # Tanh-based reach rewards
+        red_reach = 1.0 - torch.tanh(5.0 * red_dist)
+        green_reach = 1.0 - torch.tanh(5.0 * green_dist)
         
-        # Milestone: Red cube crossed halfway
-        red_halfway = (red_initial_x + target_red_region_x) / 2
-        red_halfway_bonus = (red_cube_pos[:, 0] > red_halfway).float() * 2.0
+        # Once a cube is placed (more lenient than sorted), keep its reach term at maximum to avoid reward drops
+        # This allows robots to disengage and move away once cube is roughly in place
+        red_reach_term = torch.where(
+            info["red_placed"].bool(),
+            torch.ones_like(red_reach),
+            red_reach
+        )
+        green_reach_term = torch.where(
+            info["green_placed"].bool(),
+            torch.ones_like(green_reach),
+            green_reach
+        )
         
-        # Stage 4: Placement bonus - Red cube at target
-        is_red_at_target = (red_cube_pos[:, 0] > target_red_region_x).float()
-        red_placement_bonus = is_red_at_target * 5.0  # Significant bonus
+        # Use a soft "choose-one" reach term to avoid pulling both arms toward the midpoint
+        # This encourages focusing on one cube at a time
+        reaching_reward = torch.maximum(red_reach_term, green_reach_term)
+        reward += reaching_reward * 2.0  # Scale factor for reach reward
         
-        reward += position_reward_red + reaching_reward_red + progress_reward_red + red_halfway_bonus + red_placement_bonus
+        # ============ Placement Rewards ============
+        # CRITICAL: Only give placement reward when robot is CLOSE to cube
+        # This prevents the policy from learning to "stay away to preserve placement reward"
         
-        # ============ Robot2 - Green Cube Rewards ============
-        # Stage 1: Position reward - Robot2 should be on RIGHT side of green cube
-        position_offset_green = robot2_tcp_pos[:, 0] - green_cube_pos[:, 0]
-        position_reward_green = torch.tanh(3 * torch.clamp(position_offset_green, min=0)) * 0.5
+        # Define "close" threshold (robot must be within this distance to get placement reward)
+        close_threshold = 0.08  # 8cm
         
-        # Stage 2: Reaching reward - Robot2 approaches green cube
-        robot2_to_green_dist = torch.linalg.norm(green_cube_pos - robot2_tcp_pos, axis=1)
-        reaching_reward_green = (1 - torch.tanh(5 * robot2_to_green_dist)) * 0.5
+        red_placement = self._compute_placement_reward(
+            red_cube_pos,
+            self.red_cube_target_region_center,
+            self.target_region_half_size
+        )
+        green_placement = self._compute_placement_reward(
+            green_cube_pos,
+            self.green_cube_target_region_center,
+            self.target_region_half_size
+        )
         
-        # Stage 3: Progress reward - Green cube moves towards target
-        green_initial_x = self.cube_spawn_center[0]
-        green_progress = (green_initial_x - green_cube_pos[:, 0]) / (green_initial_x - target_green_region_x)
-        green_progress = torch.clamp(green_progress, 0, 1)
-        progress_reward_green = green_progress * 1.5
+        # Only give placement reward if:
+        # 1. Cube is not yet sorted
+        # 2. At least one robot is close to the cube (actively engaging with it)
+        red_is_engaged = (red_dist < close_threshold).float()
+        green_is_engaged = (green_dist < close_threshold).float()
         
-        # Milestone: Green cube crossed halfway
-        green_halfway = (green_initial_x + target_green_region_x) / 2
-        green_halfway_bonus = (green_cube_pos[:, 0] < green_halfway).float() * 2.0
+        red_placement_term = red_placement * (~info["is_red_sorted"].bool()).float() * red_is_engaged
+        green_placement_term = green_placement * (~info["is_green_sorted"].bool()).float() * green_is_engaged
         
-        # Stage 4: Placement bonus - Green cube at target
-        is_green_at_target = (green_cube_pos[:, 0] < target_green_region_x).float()
-        green_placement_bonus = is_green_at_target * 5.0
+        reward += (red_placement_term + green_placement_term) * 2.0
         
-        reward += position_reward_green + reaching_reward_green + progress_reward_green + green_halfway_bonus + green_placement_bonus
-        
-        # ============ Penalty for wrong robot-cube assignment ============
-        # robot1_to_green_dist = torch.linalg.norm(green_cube_pos - robot1_tcp_pos, axis=1)
-        # wrong_reach_penalty_1 = torch.clamp(0.1 - robot1_to_green_dist, min=0) * 2.0
-        # reward -= wrong_reach_penalty_1
-        
-        # robot2_to_red_dist = torch.linalg.norm(red_cube_pos - robot2_tcp_pos, axis=1)
-        # wrong_reach_penalty_2 = torch.clamp(0.1 - robot2_to_red_dist, min=0) * 2.0
-        # reward -= wrong_reach_penalty_2
-        
-        # ============ Static reward when both cubes are sorted ============
+        # ============ Static Reward ============
+        # Encourage robots to be static when both cubes are sorted
         both_sorted = info["is_red_sorted"] & info["is_green_sorted"]
-        qvel1 = self.agent.agents[0].robot.get_qvel()[..., :-1]
-        qvel2 = self.agent.agents[1].robot.get_qvel()[..., :-1]
-        static_reward_1 = 1 - torch.tanh(5 * torch.linalg.norm(qvel1, axis=1))
-        static_reward_2 = 1 - torch.tanh(5 * torch.linalg.norm(qvel2, axis=1))
-        reward += (static_reward_1 + static_reward_2) * both_sorted.float()
+        if both_sorted.any():
+            qvel1 = self.agent.agents[0].robot.get_qvel()[..., :-1]
+            qvel2 = self.agent.agents[1].robot.get_qvel()[..., :-1]
+            static_reward_1 = 1.0 - torch.tanh(5.0 * torch.linalg.norm(qvel1, axis=1))
+            static_reward_2 = 1.0 - torch.tanh(5.0 * torch.linalg.norm(qvel2, axis=1))
+            static_reward = (static_reward_1 + static_reward_2) / 2.0
+            reward += static_reward * both_sorted.float() * 1.0
         
-        # ============ Success bonus - MUCH LARGER ============
-        # This needs to be significantly larger than intermediate rewards
-        # Max intermediate reward ≈ 2 (position + reaching + progress + halfway) per robot = 8 total
-        # Success should be at least 3x that
-        reward[info["success"]] = 25.0
+        # ============ Success Bonus ============
+        # Large bonus for complete success
+        reward[info["success"]] = 10.0
         
         return reward
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        # Max reward is approximately 25 (success bonus)
-        # Normalize to [0, 1] range
-        return self.compute_dense_reward(obs=obs, action=action, info=info) / 25.0
+        """
+        Normalized dense reward in [0, 1] range.
+        
+        Max reward breakdown:
+        - Reaching reward: 1.0 * 2 = 2.0 (sum of both reach terms)
+        - Placement reward: 2.0 * 2 = 4.0 (max for both cubes when engaged)
+        - Static reward: 1.0 (when both sorted)
+        - Success bonus: 10.0
+        Total max: ~17.0
+        """
+        return self.compute_dense_reward(obs=obs, action=action, info=info) / 17.0
