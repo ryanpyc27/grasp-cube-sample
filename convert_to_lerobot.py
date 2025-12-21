@@ -23,6 +23,7 @@ from typing import Dict, List, Any
 
 import h5py
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -147,11 +148,8 @@ def create_episode_parquet(episode_data: Dict, episode_idx: int, fps: int) -> pa
             extra_list.append(extra)
         columns['observation.environment_state'] = extra_list
     
-    # Add image frame indices (reference to video frames)
-    if 'obs' in episode_data and 'sensor_data' in episode_data['obs']:
-        for sensor_name in episode_data['obs']['sensor_data'].keys():
-            # Frame index in video (0-based within episode)
-            columns[f'observation.images.{sensor_name}'] = list(range(num_frames))
+    # NOTE: Video data is stored in separate mp4 files, not in parquet
+    # LeRobot v3.0 loads videos separately based on episode_index and frame_index
     
     # Add next done flag
     done = episode_data['terminated'] | episode_data['truncated']
@@ -242,7 +240,7 @@ def create_meta_files(episodes: List[Dict], output_dir: Path, args):
     
     # Create info.json
     info = {
-        "codebase_version": "v2.0",
+        "codebase_version": "v3.0",
         "robot_type": args.robot_type,
         "fps": args.fps,
         "total_episodes": total_episodes,
@@ -254,11 +252,19 @@ def create_meta_files(episodes: List[Dict], output_dir: Path, args):
         "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
         "video_path": "videos/{video_key}/episode_{episode_index:06d}.mp4",
         "features": {
+            # Base columns (scalars use shape=[1])
+            "frame_index": {"dtype": "int64", "shape": [1]},
+            "episode_index": {"dtype": "int64", "shape": [1]},
+            "index": {"dtype": "int64", "shape": [1]},
+            "task_index": {"dtype": "int64", "shape": [1]},
+            "timestamp": {"dtype": "float32", "shape": [1]},
+            # Action
             "action": {
                 "dtype": "float32",
                 "shape": [action_dim],
                 "names": None
             },
+            # Observation
             "observation.state": {
                 "dtype": "float32", 
                 "shape": [state_dim],
@@ -287,23 +293,41 @@ def create_meta_files(episodes: List[Dict], output_dir: Path, args):
             }
         }
     
+    # Add next.* columns (scalars use shape=[1])
+    info["features"].update({
+        "next.done": {"dtype": "bool", "shape": [1]},
+        "next.reward": {"dtype": "float32", "shape": [1]},
+        "next.success": {"dtype": "bool", "shape": [1]}
+    })
+    
     with open(meta_dir / "info.json", 'w') as f:
         json.dump(info, f, indent=2)
     
-    # Create tasks.jsonl
-    with open(meta_dir / "tasks.jsonl", 'w') as f:
-        task = {"task_index": 0, "task": args.task}
-        f.write(json.dumps(task) + '\n')
+    # Create tasks.parquet (v3.0 requires parquet format)
+    tasks_df = pd.DataFrame([{"task_index": 0, "task": args.task}])
+    tasks_df.to_parquet(meta_dir / "tasks.parquet", index=False)
     
-    # Create episodes.jsonl
-    with open(meta_dir / "episodes.jsonl", 'w') as f:
-        for i, ep in enumerate(episodes):
-            episode_info = {
-                "episode_index": i,
-                "tasks": [args.task],
-                "length": len(ep['actions'])
-            }
-            f.write(json.dumps(episode_info) + '\n')
+    # Create episodes.parquet (v3.0 requires parquet format in nested structure)
+    episodes_list = []
+    for i, ep in enumerate(episodes):
+        episode_info = {
+            "episode_index": i,
+            "tasks": [args.task],
+            "length": len(ep['actions'])
+        }
+        # Add video chunk indices for each camera
+        if 'obs' in ep and 'sensor_data' in ep['obs']:
+            for sensor_name in ep['obs']['sensor_data'].keys():
+                # All videos are in chunk 0 (single chunk for simplicity)
+                episode_info[f"videos/observation.images.{sensor_name}/chunk_index"] = 0
+        
+        episodes_list.append(episode_info)
+    
+    episodes_df = pd.DataFrame(episodes_list)
+    # LeRobot v3.0 expects episodes in a nested directory structure: meta/episodes/chunk-000/
+    episodes_dir = meta_dir / "episodes" / "chunk-000"
+    episodes_dir.mkdir(parents=True, exist_ok=True)
+    episodes_df.to_parquet(episodes_dir / "episodes.parquet", index=False)
     
     # Create stats.json (compute statistics)
     stats = compute_statistics(episodes)

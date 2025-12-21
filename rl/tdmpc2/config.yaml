@@ -2,8 +2,8 @@ defaults:
     - override hydra/launcher: submitit_local
 
 # environment
-env_id: SortCube-v1
-obs: state # or rgb
+env_id: StackCubeSO101-v1
+obs: rgb # or rgb
 control_mode: default # or pd_joint_delta_pos or pd_ee_delta_pose
 num_envs: 32
 num_eval_envs: 4
@@ -77,7 +77,7 @@ simnorm_dim: 8
 # logging
 wandb_project: EAI-project
 wandb_group: rl-test
-wandb_name: tdmpc2-SortCube-state
+wandb_name: tdmpc2-StackCubeSO101-rgb
 wandb_entity: panyc23-tsinghua-university
 wandb_silent: false
 wandb: true # enable wandb

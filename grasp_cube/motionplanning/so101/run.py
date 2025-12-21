@@ -15,11 +15,12 @@ from gymnasium.spaces import Dict as DictSpace
 from mani_skill.utils.wrappers.record import RecordEpisode
 from mani_skill.utils.wrappers import FlattenActionSpaceWrapper
 from mani_skill.trajectory.merge_trajectory import merge_trajectories
-from grasp_cube.motionplanning.so101.solutions import solvePickCube, solveSortCubes
+from grasp_cube.motionplanning.so101.solutions import solvePickCube, solveSortCubes, solveStackCubes
 
 MP_SOLUTIONS = {
     "PickCubeSO101-v1": solvePickCube,
     "SortCubeSO101-v1": solveSortCubes,
+    "StackCubeSO101-v1": solveStackCubes,
 }
 def parse_args(args=None):
     parser = argparse.ArgumentParser()

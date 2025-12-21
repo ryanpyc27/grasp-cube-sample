@@ -59,7 +59,20 @@ class StackCubeSO101Env(BaseEnv):
         pose = sapien_utils.look_at(
             eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
         )
-        return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
+        # Add both base camera and wrist camera
+        return [
+            CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100),
+            CameraConfig(
+                "wrist_camera",
+                sapien.Pose(),  # The pose is relative to the mount link
+                128,
+                128,
+                np.pi / 2,
+                0.01,
+                100,
+                mount=self.agent.robot.links_map["camera_link"],
+            ),
+        ]
 
     @property
     def _default_human_render_camera_configs(self):
