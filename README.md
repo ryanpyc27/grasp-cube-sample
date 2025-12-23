@@ -8,6 +8,12 @@ This repository provides a reference implementation of an SO101 robot arm perfor
 
 ## Important Update
 
+
+Add real-world deployment code samples. The simulation eval workflow is similar to the real-world eval code. The reference deployment policy uses the same ACT version as the submodule.
+
+If your own LeRobot policy fails in simulation, check the `grasp_cube/real/act_policy.py` implementation. **Crucially, LeRobot requires loading data pre- and post-processors in addition to the policy itself.**
+
+
 It is recommended to run uv sync each time you pull updates from GitHub.
 
 Since the LeRobot version has undergone significant changes, we provide a LeRobot branch used by the TAs and have updated the reference for using the LeRobot dataset.

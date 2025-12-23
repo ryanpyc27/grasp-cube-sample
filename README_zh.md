@@ -8,7 +8,10 @@
 
 ## 更新
 
-建议每次拉去 github 更新时重新 uv sync.
+加入真机部署代码的样例，仿真评测流程可以参考真机评测的代码。其中真机部署的供参考的策略使用的是与 submodule 相同版本的 ACT 策略。
+如果在尝试 LeRobot ACT 在仿真中部署失败可以参考 `grasp_cube/real/act_policy.py` 的实现。**其中非常重要的一点是 LeRobot 除了载入策略外，还需要载入数据的预处理器和后处理器。**
+
+建议每次拉取 github 更新时重新 uv sync.
 
 由于 LeRobot 版本变动较大，我们提供了助教使用的 LeRobot 分支并更新了 LeRobot 数据集使用参考。
 
