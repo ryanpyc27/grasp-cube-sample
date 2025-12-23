@@ -11,8 +11,9 @@ import h5py
 import tyro
 import math
 import mani_skill
+import grasp_cube.envs.tasks.stack_cube_so101
 
-REPO_NAME = "actmem_bench"
+REPO_NAME = "stack_cube"
 
 def main(h5_path: Path, *, push_to_hub: bool = False):
     json_path = h5_path.with_suffix('.json')
@@ -23,15 +24,16 @@ def main(h5_path: Path, *, push_to_hub: bool = False):
     
     h5_file = h5py.File(h5_path, 'r')
     
-    image_shape = h5_file['traj_0']['obs']['sensor_data']['base_camera']['rgb'].shape[1:]
-    wrist_image_shape = h5_file['traj_0']['obs']['sensor_data']['hand_camera']['rgb'].shape[1:]
+    # StackCubeSO101 uses 'Color' (RGBA) instead of 'rgb'
+    # Shape is (T, H, W, 4) for RGBA, we'll convert to RGB (H, W, 3)
+    base_camera_color = h5_file['traj_0']['obs']['sensor_data']['base_camera']['Color']
+    wrist_camera_color = h5_file['traj_0']['obs']['sensor_data']['wrist_camera']['Color']
     
-    # arm_state_shape = h5_file['traj_0']['obs']['extra']['tcp_pose'].shape[1:]
-    # gripper_state_shape = (1,)
-    # state_shape = (arm_state_shape[0] + gripper_state_shape[0],)
+    # Convert RGBA float32 to RGB uint8
+    image_shape = (base_camera_color.shape[1], base_camera_color.shape[2], 3)  # (H, W, 3)
+    wrist_image_shape = (wrist_camera_color.shape[1], wrist_camera_color.shape[2], 3)
     
     state_shape = h5_file['traj_0']['obs']['agent']['qpos'].shape[1:]
-    
     action_shape = h5_file['traj_0']['actions'].shape[1:]
     
     control_mode = json_data['env_info']['env_kwargs']['control_mode']
@@ -58,88 +60,86 @@ def main(h5_path: Path, *, push_to_hub: bool = False):
 
     dataset = LeRobotDataset.create(
         repo_id=repo_name,
-        robot_type="panda",
+        robot_type="so101",
         fps=env.unwrapped._control_freq,
         features={
-            "image": {
+            "observation.images.image": {
                 "dtype": "image",
                 "shape": image_shape,
                 "names": ["height", "width", "channel"],
             },
-            "wrist_image": {
+            "observation.images.wrist_image": {
                 "dtype": "image",
                 "shape": wrist_image_shape,
                 "names": ["height", "width", "channel"],
             },
-            "state": {
+            "observation.state": {
                 "dtype": "float32",
                 "shape": state_shape,
                 "names": ["state"],
             },
-            "actions": {
+            "action": {
                 "dtype": "float32",
                 "shape": action_shape,
-                "names": ["actions"],
+                "names": ["action"],
             },
         },
         image_writer_threads=10,
         image_writer_processes=5,
     )
     
+    print(f"Converting {len(h5_file.keys())} trajectories...")
+    
     for traj_idx in range(len(h5_file.keys())):
+        if traj_idx % 10 == 0:
+            print(f"Processing trajectory {traj_idx}/{len(h5_file.keys())}...")
+            
         traj = h5_file[f'traj_{traj_idx}']
         obs = traj['obs']
         actions = traj['actions']
         
         for step in range(actions.shape[0]):
-            image = obs['sensor_data']['base_camera']['rgb'][step]
-            wrist_image = obs['sensor_data']['hand_camera']['rgb'][step]
+            # Convert RGBA float32 [0,1] to RGB uint8 [0,255]
+            base_color = obs['sensor_data']['base_camera']['Color'][step]
+            wrist_color = obs['sensor_data']['wrist_camera']['Color'][step]
+            
+            # Take only RGB channels (first 3), convert to uint8
+            image = (np.clip(base_color[..., :3], 0, 1) * 255).astype(np.uint8)
+            wrist_image = (np.clip(wrist_color[..., :3], 0, 1) * 255).astype(np.uint8)
+            
             gripper_state = obs['agent']['qpos'][step][..., -2:]
             action = actions[step]
+            
+            # State: arm joints (exclude last 2 gripper joints) + gripper state
             state = np.concatenate([
-                # obs['extra']['tcp_pose'][step][:3],
-                # _quat2euler(obs['extra']['tcp_pose'][step][3:]),
                 obs['agent']['qpos'][step][..., :-2],  # Exclude gripper state
                 gripper_state
             ], axis=-1)
             
             dataset.add_frame({
-                "image": image,
-                "wrist_image": wrist_image,
-                "state": state,
-                "actions": action,   
-            }, task=env_id)      
+                "observation.images.image": image,
+                "observation.images.wrist_image": wrist_image,
+                "observation.state": state,
+                "action": action,
+                "task": env_id,
+            })      
             
-        dataset.save_episode()  
+        dataset.save_episode()
+    
+    print(f"\nConversion complete! Converted {len(h5_file.keys())} episodes.")
+    print(f"Dataset saved to: {output_path}")
     
     if push_to_hub:
+        print("\nPushing to HuggingFace Hub...")
         dataset.push_to_hub(
-            tags=["actmem_bench", "panda"],
+            tags=["stack_cube", "so101"],
             private=False,
             push_videos=True,
             license="apache-2.0",
         )
+        print("Successfully pushed to hub!")
         
-def _quat2euler(quat):
-    """
-    w, x, y, z -> euler x y z
-    """
-    assert quat.shape[-1] == 4, "Quaternion must have shape (..., 4)"
-    w, x, y, z = np.split(quat, 4, axis=-1)
-    t0 = +2.0 * (w * x + y * z)
-    t1 = +1.0 - 2.0 * (x * x + y * y)
-    roll_x = np.arctan2(t0, t1)
-
-    t2 = +2.0 * (w * y - z * x)
-    t2 = np.clip(t2, -1.0, 1.0)
-    pitch_y = np.arcsin(t2)
-
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    yaw_z = np.arctan2(t3, t4)
-
-    return np.concatenate([roll_x, pitch_y, yaw_z], axis=-1)
-
 
 if __name__ == "__main__":
     tyro.cli(main)
+
