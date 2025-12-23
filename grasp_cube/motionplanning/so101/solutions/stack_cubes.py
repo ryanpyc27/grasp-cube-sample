@@ -167,18 +167,14 @@ def solve(env: StackCubeSO101Env, seed=None, debug=False, vis=False):
     # -------------------------------------------------------------------------- #
     planner.open_gripper(t=10)
     
-    # -------------------------------------------------------------------------- #
-    # Phase 11: Retreat upward
-    # -------------------------------------------------------------------------- #
-    retreat_pose = sapien.Pose(
-        [target_pos[0], target_pos[1], target_pos[2] + 0.08],
-        grasp_pose.q
-    )
-    result = planner.move_to_pose_with_RRTConnect(retreat_pose)
+    # Wait for things to settle while keeping arm at current position
+    # Get current joint positions
+    current_qpos = env_unwrapped.agent.robot.get_qpos()[0].cpu().numpy()
+
     
-    # Wait for things to settle
     for _ in range(10):
-        obs, reward, terminated, truncated, info = env.step(np.zeros(env.action_space.shape[-1]))
+        # Hold current position instead of moving to zero
+        obs, reward, terminated, truncated, info = env.step(current_qpos)
         if vis:
             env_unwrapped.render_human()
     
@@ -186,4 +182,3 @@ def solve(env: StackCubeSO101Env, seed=None, debug=False, vis=False):
     
     # Return the final result
     return obs, reward, terminated, truncated, info
-

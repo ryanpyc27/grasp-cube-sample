@@ -18,7 +18,7 @@ from grasp_cube.agents.robots.so101.so_101 import SO101
 from grasp_cube.envs.tasks.table import MyTableBuilder
 
 
-@register_env("StackCubeSO101-v1", max_episode_steps=50)
+@register_env("StackCubeSO101-v1", max_episode_steps=200)
 class StackCubeSO101Env(BaseEnv):
     """
     **Task Description:**
@@ -56,8 +56,12 @@ class StackCubeSO101Env(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
+        # When camera looks straight down, we need to specify the 'up' vector
+        # to avoid ambiguous camera orientation. Use -Y as up so the image is aligned.
         pose = sapien_utils.look_at(
-            eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
+            eye=self.sensor_cam_eye_pos, 
+            target=self.sensor_cam_target_pos,
+            # up=[0, 1, 0]
         )
         # Add both base camera and wrist camera
         return [

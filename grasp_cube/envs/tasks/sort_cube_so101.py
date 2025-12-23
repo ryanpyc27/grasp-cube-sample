@@ -61,9 +61,33 @@ class SortCubeSO101Env(BaseEnv):
     @property
     def _default_sensor_configs(self):
         pose = sapien_utils.look_at(
-            eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
+            eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos, 
+            up = [0, 1, 0]
         )
-        return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
+        # Add base camera and wrist cameras for both robots
+        return [
+            CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100),
+            CameraConfig(
+                "wrist_camera_1",
+                sapien.Pose(),  # The pose is relative to the mount link
+                128,
+                128,
+                np.pi / 2,
+                0.01,
+                100,
+                mount=self.agent.agents[0].robot.links_map["camera_link"],
+            ),
+            CameraConfig(
+                "wrist_camera_2",
+                sapien.Pose(),  # The pose is relative to the mount link
+                128,
+                128,
+                np.pi / 2,
+                0.01,
+                100,
+                mount=self.agent.agents[1].robot.links_map["camera_link"],
+            ),
+        ]
 
     @property
     def _default_human_render_camera_configs(self):
