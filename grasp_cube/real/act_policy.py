@@ -40,8 +40,8 @@ class LeRobotACTPolicy:
         obs = {}
         if self.robot_type == "so101":
             obs["observation.state"] = observation["states"]["arm"]
-            obs["observation.images.front"] = observation["images"]["front"]
-            obs["observation.images.wrist"] = observation["images"]["wrist"]
+            obs["observation.images.image"] = observation["images"]["front"]
+            obs["observation.images.wrist_image"] = observation["images"]["wrist"]
         elif self.robot_type == "bi_so101":
             obs["observation.state"] = np.concatenate([
                 observation["states"]["left_arm"],

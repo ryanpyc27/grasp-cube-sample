@@ -61,7 +61,7 @@ class StackCubeSO101Env(BaseEnv):
         pose = sapien_utils.look_at(
             eye=self.sensor_cam_eye_pos, 
             target=self.sensor_cam_target_pos,
-            # up=[0, 1, 0]
+            # up=[0, -1, 0]
         )
         # Add both base camera and wrist camera
         return [

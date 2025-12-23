@@ -11,7 +11,7 @@ Usage:
 
 import argparse
 from huggingface_hub import HfApi, create_repo
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from external.lerobot.src.lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 def parse_args():
