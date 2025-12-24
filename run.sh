@@ -46,10 +46,18 @@ rm -r /root/autodl-tmp/lerobot_outputs
 
 python train.py env_id=StackCubeSO101-v1
 
-CUDA_VISIBLE_DEVICES=2 python eval_policy.py \
-    --checkpoint /homes/yichengp/grasp-cube-sample/log/stack_cube_200samples/checkpoints/last/pretrained_model \
+python eval_policy.py \
+    --policy.path log/stack_cube_200samples/checkpoints/last/pretrained_model \
+    --policy.robot-type so101 \
+    --policy.device cuda:0 \
     --env-id StackCubeSO101-v1 \
-    --num-episodes 10 \
-    --max-steps 200 \
-    --save-video \
-    --debug
+    --replan-steps 32 \
+    --num-episodes 10
+
+python eval_policy.py \
+    --policy.path log/sort_cube_200samples/checkpoints/last/pretrained_model \
+    --policy.robot-type bi_so101 \
+    --policy.device cuda:0 \
+    --env-id SortCubeSO101-v1 \
+    --replan-steps 32 \
+    --num-episodes 10

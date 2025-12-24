@@ -18,7 +18,7 @@ from grasp_cube.agents.robots.so101.so_101 import SO101
 from grasp_cube.envs.tasks.table import MyTableBuilder
 
 
-@register_env("SortCubeSO101-v1", max_episode_steps=50)
+@register_env("SortCubeSO101-v1", max_episode_steps=1000)
 class SortCubeSO101Env(BaseEnv):
     """
     **Task Description:**

@@ -44,12 +44,13 @@ class LeRobotACTPolicy:
             obs["observation.images.wrist_image"] = observation["images"]["wrist"]
         elif self.robot_type == "bi_so101":
             obs["observation.state"] = np.concatenate([
-                observation["states"]["left_arm"],
                 observation["states"]["right_arm"],
+                observation["states"]["left_arm"],
             ], axis=-1)
-            obs["observation.images.front"] = observation["images"]["front"]
-            obs["observation.images.left_wrist"] = observation["images"]["left_wrist"]
-            obs["observation.images.right_wrist"] = observation["images"]["right_wrist"]
+            # Use the same key names as training data
+            obs["observation.images.image"] = observation["images"]["front"]
+            obs["observation.images.wrist_image_1"] = observation["images"]["right_wrist"]
+            obs["observation.images.wrist_image_2"] = observation["images"]["left_wrist"]
         obs_infer = prepare_observation_for_inference(obs, self.device, observation["task"], self.robot_type)
         obs_infer_processed = self.preprocessor(obs_infer)
         action_chunk = self.policy.predict_action_chunk(obs_infer_processed).swapaxes(0, 1).cpu()

@@ -39,9 +39,21 @@ class ManiSkillEnvWrapper:
     def action_dim(self) -> int:
         """Return action dimension."""
         action_space = self.env.action_space
-        if hasattr(action_space, 'shape'):
+        
+        # Handle Dict action space (multi-agent environments)
+        if hasattr(action_space, 'spaces'):
+            # Dict space - sum up dimensions of all agents
+            total_dim = 0
+            for key, space in action_space.spaces.items():
+                if hasattr(space, 'shape'):
+                    total_dim += space.shape[-1]
+            return total_dim
+        # Handle Box action space (single agent)
+        elif hasattr(action_space, 'shape'):
             return action_space.shape[-1]
-        return action_space.n
+        # Handle Discrete action space
+        else:
+            return action_space.n
     
     def reset(self, seed=None):
         """Reset environment and return observation in LeRobot format."""
@@ -55,6 +67,21 @@ class ManiSkillEnvWrapper:
         if isinstance(action, np.ndarray):
             if action.ndim == 1:
                 action = action.reshape(1, -1)
+        
+        # Handle Dict action space (multi-agent environments)
+        action_space = self.env.action_space
+        if hasattr(action_space, 'spaces'):
+            # Convert flat action to Dict format
+            # For bi_so101: split action into two halves for two arms
+            # State input order in act_policy.py is: [right_arm, left_arm] = [so101-0, so101-1]
+            # So policy output order is: [right_arm_action, left_arm_action] = [so101-0_action, so101-1_action]
+            if isinstance(action, np.ndarray):
+                mid = action.shape[-1] // 2
+                action_dict = {
+                    'so101-0': action[..., :mid],   # Right arm (so101-0) - first half
+                    'so101-1': action[..., mid:]    # Left arm (so101-1) - second half
+                }
+                action = action_dict
         
         obs, reward, terminated, truncated, info = self.env.step(action)
         obs_lerobot = self._convert_obs_to_lerobot(obs)
@@ -107,35 +134,88 @@ class ManiSkillEnvWrapper:
             base_image = (np.clip(base_image, 0, 1) * 255).astype(np.uint8)
             lerobot_obs["images"]["front"] = base_image
             
-            # Wrist camera
-            wrist_image = obs['sensor_data']['wrist_camera']['Color']
-            if isinstance(wrist_image, torch.Tensor):
-                wrist_image = wrist_image.cpu().numpy()
-            # Remove batch dimension if present
-            if wrist_image.ndim == 4:
-                wrist_image = wrist_image[0]
-            # Take only RGB channels (ignore Alpha)
-            wrist_image = wrist_image[..., :3]
-            # Convert from float [0,1] to uint8 [0,255]
-            wrist_image = (np.clip(wrist_image, 0, 1) * 255).astype(np.uint8)
-            lerobot_obs["images"]["wrist"] = wrist_image
+            # Wrist camera - handle both single arm and dual arm cases
+            if 'wrist_camera' in obs['sensor_data']:
+                # Single arm case
+                wrist_image = obs['sensor_data']['wrist_camera']['Color']
+                if isinstance(wrist_image, torch.Tensor):
+                    wrist_image = wrist_image.cpu().numpy()
+                if wrist_image.ndim == 4:
+                    wrist_image = wrist_image[0]
+                wrist_image = wrist_image[..., :3]
+                wrist_image = (np.clip(wrist_image, 0, 1) * 255).astype(np.uint8)
+                lerobot_obs["images"]["wrist"] = wrist_image
+            elif 'wrist_camera_1' in obs['sensor_data'] and 'wrist_camera_2' in obs['sensor_data']:
+                # Dual arm case - use wrist_camera_1 and wrist_camera_2
+                wrist_image_1 = obs['sensor_data']['wrist_camera_1']['Color']
+                wrist_image_2 = obs['sensor_data']['wrist_camera_2']['Color']
+                
+                if isinstance(wrist_image_1, torch.Tensor):
+                    wrist_image_1 = wrist_image_1.cpu().numpy()
+                if isinstance(wrist_image_2, torch.Tensor):
+                    wrist_image_2 = wrist_image_2.cpu().numpy()
+                    
+                if wrist_image_1.ndim == 4:
+                    wrist_image_1 = wrist_image_1[0]
+                if wrist_image_2.ndim == 4:
+                    wrist_image_2 = wrist_image_2[0]
+                    
+                wrist_image_1 = wrist_image_1[..., :3]
+                wrist_image_2 = wrist_image_2[..., :3]
+                
+                wrist_image_1 = (np.clip(wrist_image_1, 0, 1) * 255).astype(np.uint8)
+                wrist_image_2 = (np.clip(wrist_image_2, 0, 1) * 255).astype(np.uint8)
+                
+                # Store both wrist cameras with proper names for bi_so101
+                # wrist_camera_1 is on agent[0] (right arm) -> right_wrist
+                # wrist_camera_2 is on agent[1] (left arm) -> left_wrist
+                lerobot_obs["images"]["right_wrist"] = wrist_image_1
+                lerobot_obs["images"]["left_wrist"] = wrist_image_2
         
         # Convert robot state (qpos)
         if 'agent' in obs:
-            state = obs['agent']['qpos']
-            if isinstance(state, torch.Tensor):
-                state = state.cpu().numpy()
-            # Remove batch dimension if present
-            if state.ndim == 2:
-                state = state[0]
-            
-            if self.robot_type == "so101":
-                lerobot_obs["states"]["arm"] = state.astype(np.float32)
-            elif self.robot_type == "bi_so101":
-                # For bi-manual, split the state
-                mid = len(state) // 2
-                lerobot_obs["states"]["left_arm"] = state[:mid].astype(np.float32)
-                lerobot_obs["states"]["right_arm"] = state[mid:].astype(np.float32)
+            # Handle both single arm and dual arm observation structures
+            if 'qpos' in obs['agent']:
+                # Single arm case: obs['agent']['qpos']
+                state = obs['agent']['qpos']
+                if isinstance(state, torch.Tensor):
+                    state = state.cpu().numpy()
+                if state.ndim == 2:
+                    state = state[0]
+                    
+                if self.robot_type == "so101":
+                    lerobot_obs["states"]["arm"] = state.astype(np.float32)
+                elif self.robot_type == "bi_so101":
+                    # For bi-manual, split the state
+                    mid = len(state) // 2
+                    lerobot_obs["states"]["right_arm"] = state[:mid].astype(np.float32)
+                    lerobot_obs["states"]["left_arm"] = state[mid:].astype(np.float32)
+                    
+            elif 'so101-0' in obs['agent'] and 'so101-1' in obs['agent']:
+                # Dual arm case: obs['agent']['so101-0']['qpos'] and obs['agent']['so101-1']['qpos']
+                state_0 = obs['agent']['so101-0']['qpos']
+                state_1 = obs['agent']['so101-1']['qpos']
+                
+                if isinstance(state_0, torch.Tensor):
+                    state_0 = state_0.cpu().numpy()
+                if isinstance(state_1, torch.Tensor):
+                    state_1 = state_1.cpu().numpy()
+                    
+                if state_0.ndim == 2:
+                    state_0 = state_0[0]
+                if state_1.ndim == 2:
+                    state_1 = state_1[0]
+                
+                # Concatenate both arms' states
+                state = np.concatenate([state_0, state_1], axis=-1)
+                
+                if self.robot_type == "bi_so101":
+                    # so101-0 is agent[0] (right arm), so101-1 is agent[1] (left arm)
+                    lerobot_obs["states"]["right_arm"] = state_0.astype(np.float32)
+                    lerobot_obs["states"]["left_arm"] = state_1.astype(np.float32)
+                else:
+                    # Fallback: just use concatenated state
+                    lerobot_obs["states"]["arm"] = state.astype(np.float32)
         
         return lerobot_obs
 
@@ -146,7 +226,7 @@ class Args:
     env_id: str = "StackCubeSO101-v1"
     replan_steps: int | None = 32
     num_episodes: int = 10
-    max_steps: int = 600
+    max_steps: int = 1000
     seed: int = 0
     save_video: bool = False
     video_dir: Path = Path("eval_videos")
@@ -194,13 +274,19 @@ def main(args: Args):
         
         # Video recording
         frames = []
-        
+        left_wrist_frames = []
+        right_wrist_frames = []
         while not done and step < args.max_steps:
             # Save frame for video (using front camera)
             if args.save_video:
                 # Get the front camera image in RGB uint8 format
                 frame = obs["images"]["front"]  # Already in RGB uint8 [H, W, 3]
+                left_wrist_frame = obs["images"]["left_wrist"]
+                right_wrist_frame = obs["images"]["right_wrist"]
                 frames.append(frame)
+                left_wrist_frames.append(left_wrist_frame)
+                right_wrist_frames.append(right_wrist_frame)
+                
             
             # Get new action chunk when queue is empty
             if not action_queue:
@@ -236,6 +322,10 @@ def main(args: Args):
         if args.save_video and len(frames) > 0:
             video_filename = video_subdir / f"episode_{episode:03d}_{'success' if success else 'fail'}.mp4"
             imageio.mimsave(video_filename, frames, fps=args.fps)
+            left_wrist_video_filename = video_subdir / f"episode_{episode:03d}_{'success' if success else 'fail'}_left_wrist.mp4"
+            imageio.mimsave(left_wrist_video_filename, left_wrist_frames, fps=args.fps)
+            right_wrist_video_filename = video_subdir / f"episode_{episode:03d}_{'success' if success else 'fail'}_right_wrist.mp4"
+            imageio.mimsave(right_wrist_video_filename, right_wrist_frames, fps=args.fps)
             print(f"Episode {episode+1} finished. Success: {success}. Video saved: {video_filename}")
         else:
             print(f"Episode {episode+1} finished. Success: {success}")
@@ -268,4 +358,13 @@ python eval_policy.py \
     --env-id StackCubeSO101-v1 \
     --replan-steps 32 \
     --num-episodes 10
+
+python eval_policy.py \
+    --policy.path log/sort_cube_200samples/checkpoints/last/pretrained_model \
+    --policy.robot-type bi_so101 \
+    --policy.device cuda:0 \
+    --env-id SortCubeSO101-v1 \
+    --replan-steps 32 \
+    --num-episodes 10 \
+    --save-video
 """
