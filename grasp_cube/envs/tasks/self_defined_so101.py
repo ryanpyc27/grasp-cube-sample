@@ -51,8 +51,8 @@ class SelfDefinedSO101Env(BaseEnv):
     lock_z = True
     target_region_half_size = (0.083, 0.082)
     red_cube_target_region_center = (0.121, 0.25)
-    robot1_position = [0.300, 0.020, 0.01]
-    robot2_position = [0.119, 0.020, 0.01]
+    robot1_position = [0.300, 0.040, 0.01]
+    robot2_position = [0.119, 0.080, 0.01]
 
     def __init__(self, *args, robot_uids=("so101", "so101"), robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -142,6 +142,17 @@ class SelfDefinedSO101Env(BaseEnv):
             if joint_type in ['prismatic', 'revolute']:
                 self.drawer_joints.append(joint)
         print(f"Found {len(self.drawer_joints)} movable drawer joints")
+        
+        # Remove all resistance from drawer joints to make them freely movable
+        for i, joint in enumerate(self.drawer_joints):
+            # Set drive properties - use stiffness to hold position once moved
+            joint.set_drive_properties(stiffness=1000, damping=50)  # Stiffness to hold position
+            # Set friction to 0 to eliminate resistance when actively moving
+            joint.set_friction(0.0)
+            # Set drive target to current position (no force trying to return to 0)
+            joint.set_drive_target(0)
+            joint.set_drive_velocity_target(0)
+            print(f"Set drawer joint {i} properties: stiffness=1000, damping=50, friction=0")
         
         # Place cabinet on table
         # The cabinet's URDF origin is not at its bottom, so we need to add an offset
@@ -248,6 +259,14 @@ class SelfDefinedSO101Env(BaseEnv):
             self.red_cube.set_pose(Pose.create_from_pq(xyz_1, qs_1))
             # Reset cabinet to its properly calculated pose
             self.cabinet.set_pose(self.cabinet_base_pose)
+            
+            # Reset drawer joint properties to ensure no spring-back force
+            for joint in self.drawer_joints:
+                joint.set_drive_properties(stiffness=1000, damping=50)
+                joint.set_friction(0.0)
+                joint.set_drive_target(0)
+                joint.set_drive_velocity_target(0)
+            
             # Reset all drawers to closed position
             # In batched environments, qpos shape is (batch_size, num_joints)
             current_qpos = self.cabinet.get_qpos()
@@ -278,80 +297,62 @@ class SelfDefinedSO101Env(BaseEnv):
         return obs
 
     def evaluate(self):
-        # Check if red cube is in the lowest drawer
-        # The cabinet has 3 drawers (joint_0, joint_1, joint_2)
-        # We need to find the lowest drawer and check if the cube is inside it
-        
-        # Get the lowest drawer (typically joint_0 or joint_2 depending on cabinet orientation)
-        # For this cabinet after rotation, we need to get the drawer link positions
-        lowest_drawer_idx = 0  # Assume joint_0 is the lowest
-        
-        # Get cabinet pose and drawer state
+        """
+        Simplified evaluation using cabinet's bounding box.
+        The cube should be inside the cabinet (within its bounding box).
+        """
+        # Get cabinet's global bounding box
+        # The cabinet is an articulation, so we need to compute its overall bounding box
+        # considering all links at their current positions
         cabinet_pose = self.cabinet.get_pose()
         cabinet_pos = cabinet_pose.p  # (batch_size, 3)
-        cabinet_quat = cabinet_pose.q  # (batch_size, 4)
-        
-        # Get drawer opening amount (qpos for the drawer joint)
-        drawer_qpos = self.cabinet.get_qpos()[:, lowest_drawer_idx]  # (batch_size,)
-        
-        # Define drawer bounding box in cabinet's local frame
-        # These values depend on the cabinet model and scale (0.2)
-        # For cabinet 45290 at scale 0.2, after rotation:
-        # The drawer depth is approximately 0.14m when fully open
-        drawer_local_offset = torch.tensor([0.0, 0.0, -0.05], device=self.device)  # Offset to lowest drawer center
-        
-        # Drawer dimensions (approximate, scaled by 0.2)
-        drawer_width = 0.08  # x dimension in local frame
-        drawer_depth_closed = 0.02  # y dimension when closed
-        drawer_height = 0.03  # z dimension
-        
-        # Account for drawer opening (extends in local +y direction for this cabinet)
-        drawer_depth = drawer_depth_closed + drawer_qpos.unsqueeze(-1)
-        
-        # Transform drawer position to world frame
-        # After 90° rotation, the drawer opens in a different world direction
-        from transforms3d.quaternions import quat2mat
-        
-        # Convert quaternion to rotation matrix for each environment in batch
-        if cabinet_quat.dim() == 1:
-            cabinet_quat = cabinet_quat.unsqueeze(0)
-        if cabinet_pos.dim() == 1:
-            cabinet_pos = cabinet_pos.unsqueeze(0)
-            
-        # Compute drawer center in world frame
-        # This is approximate - we transform the local offset by cabinet rotation
-        rot_matrices = []
-        for i in range(cabinet_quat.shape[0]):
-            q = cabinet_quat[i].cpu().numpy()
-            rot_mat = quat2mat([q[0], q[1], q[2], q[3]])  # w,x,y,z format
-            rot_matrices.append(torch.tensor(rot_mat, device=self.device))
-        
-        if len(rot_matrices) > 0:
-            rot_matrix = torch.stack(rot_matrices)  # (batch_size, 3, 3)
-            drawer_world_offset = torch.bmm(rot_matrix, drawer_local_offset.unsqueeze(0).repeat(self.num_envs, 1).unsqueeze(-1)).squeeze(-1)
-        else:
-            drawer_world_offset = drawer_local_offset.unsqueeze(0).repeat(self.num_envs, 1)
-            
-        drawer_center = cabinet_pos + drawer_world_offset
         
         # Get red cube position
         cube_pos = self.red_cube.pose.p  # (batch_size, 3)
         
-        # Check if cube is inside drawer bounding box (loose check)
-        # We use a simpler check: cube is close to drawer center and at appropriate height
-        dist_to_drawer_center = torch.linalg.norm(cube_pos[:, :2] - drawer_center[:, :2], axis=1)
-        is_in_drawer_xy = dist_to_drawer_center < (drawer_width * 1.5)  # Generous threshold
+        # Define cabinet bounding box based on the model
+        # From bounding_box.json: min: [-0.455902, -0.801925, -0.540979], max: [0.444886, 0.67794, 0.579644]
+        # After scaling by 0.2 and considering the cabinet pose
+        scale = 0.2
+        cabinet_bbox_min_local = torch.tensor([-0.455902, -0.801925, -0.540979], device=self.device) * scale
+        cabinet_bbox_max_local = torch.tensor([0.444886, 0.67794, 0.579644], device=self.device) * scale
         
-        # Check z-height: cube should be near the drawer height
-        drawer_z_min = drawer_center[:, 2] - drawer_height
-        drawer_z_max = drawer_center[:, 2] + drawer_height
-        is_in_drawer_z = (cube_pos[:, 2] > drawer_z_min) & (cube_pos[:, 2] < drawer_z_max)
+        # Transform to world coordinates
+        # Since the cabinet is rotated 90° around z-axis, we need to rotate the bounding box
+        # After 90° rotation: (x, y, z) -> (-y, x, z)
+        # So the bounding box in world frame is:
+        # min_x_world = cabinet_x + min_y_local (due to 90° rotation)
+        # min_y_world = cabinet_y - max_x_local (due to 90° rotation)
+        # max_x_world = cabinet_x + max_y_local
+        # max_y_world = cabinet_y - min_x_local
         
-        is_cube_in_drawer = is_in_drawer_xy & is_in_drawer_z
+        # For simplicity and to handle batched environments, compute bounding box in world frame
+        if cabinet_pos.dim() == 1:
+            cabinet_pos = cabinet_pos.unsqueeze(0)
         
-        # For reward shaping: check if cube is approaching the drawer
-        drawer_target_pos = drawer_center.clone()
-        placed_threshold = 0.15  # More lenient threshold for reward shaping
+        # After 90° rotation around z-axis: swap x and y, negate new x
+        bbox_min_x = cabinet_pos[:, 0] + cabinet_bbox_min_local[1] * scale  # -y becomes x
+        bbox_max_x = cabinet_pos[:, 0] + cabinet_bbox_max_local[1] * scale
+        bbox_min_y = cabinet_pos[:, 1] - cabinet_bbox_max_local[0] * scale  # -x becomes y
+        bbox_max_y = cabinet_pos[:, 1] - cabinet_bbox_min_local[0] * scale
+        bbox_min_z = cabinet_pos[:, 2] + cabinet_bbox_min_local[2] * scale
+        bbox_max_z = cabinet_pos[:, 2] + cabinet_bbox_max_local[2] * scale
+        
+        # Check if cube is inside the bounding box
+        is_in_bbox_x = (cube_pos[:, 0] >= bbox_min_x) & (cube_pos[:, 0] <= bbox_max_x)
+        is_in_bbox_y = (cube_pos[:, 1] >= bbox_min_y) & (cube_pos[:, 1] <= bbox_max_y)
+        is_in_bbox_z = (cube_pos[:, 2] >= bbox_min_z) & (cube_pos[:, 2] <= bbox_max_z)
+        
+        is_cube_in_cabinet = is_in_bbox_x & is_in_bbox_y & is_in_bbox_z
+        
+        # For reward shaping: compute a target position (center of the cabinet's lowest drawer region)
+        # Using the center of the bottom part of the cabinet
+        target_x = (bbox_min_x + bbox_max_x) / 2
+        target_y = (bbox_min_y + bbox_max_y) / 2
+        target_z = bbox_min_z + (bbox_max_z - bbox_min_z) * 0.2  # Lower 20% of cabinet height
+        
+        drawer_target_pos = torch.stack([target_x, target_y, target_z], dim=1)
+        placed_threshold = 0.15  # Lenient threshold for reward shaping
         red_placed = torch.linalg.norm(cube_pos - drawer_target_pos, axis=1) < placed_threshold
         
         # Check if both robots are static
@@ -360,11 +361,10 @@ class SelfDefinedSO101Env(BaseEnv):
         is_robots_static = is_robot1_static & is_robot2_static
         
         return {
-            "success": is_cube_in_drawer & is_robots_static,
-            "is_red_sorted": is_cube_in_drawer,
+            "success": is_cube_in_cabinet & is_robots_static,
+            "is_red_sorted": is_cube_in_cabinet,
             "red_placed": red_placed,
             "is_robots_static": is_robots_static,
-            "drawer_opening": drawer_qpos.mean().item(),  # For debugging
         }
 
     def _compute_reach_reward(self, cube_pos: torch.Tensor, tcp_positions: list) -> torch.Tensor:

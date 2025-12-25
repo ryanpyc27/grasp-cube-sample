@@ -357,14 +357,14 @@ python eval_policy.py \
     --policy.device cuda:0 \
     --env-id StackCubeSO101-v1 \
     --replan-steps 32 \
-    --num-episodes 10
+    --num-episodes 100
 
-python eval_policy.py \
+CUDA_VISIBLE_DEVICES=0 python eval_policy.py \
     --policy.path log/sort_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type bi_so101 \
     --policy.device cuda:0 \
     --env-id SortCubeSO101-v1 \
     --replan-steps 32 \
-    --num-episodes 10 \
-    --save-video
+    --num-episodes 100 \
+    --seed 141
 """

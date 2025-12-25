@@ -66,6 +66,9 @@ class BaseMotionPlanningSolver:
         planner.set_base_pose(np.hstack([self.base_pose.p, self.base_pose.q]))
         planner.joint_vel_limits = np.asarray(planner.joint_vel_limits) * self.joint_vel_limits
         planner.joint_acc_limits = np.asarray(planner.joint_acc_limits) * self.joint_acc_limits
+        
+        planner.IK_threshold = 5e-2  # 可以调整这个值，例如 1e-2, 1e-3, 1e-4
+        
         return planner
 
     def _update_grasp_visual(self, target: sapien.Pose) -> None:

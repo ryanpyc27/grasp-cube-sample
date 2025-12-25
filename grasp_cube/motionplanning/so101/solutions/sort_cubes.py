@@ -308,7 +308,7 @@ def pick_and_place(planner: DualArmSO101MotionPlanner, robot_idx: int,
     # Move to a position directly above the cube first
     # This avoids horizontal collision with the cube
     # Try progressively lower heights until one works
-    approach_heights = [0.10, 0.08, 0.06, 0.05, 0.04, 0.03]  # 增加更多尝试选项
+    approach_heights = [0.06, 0.05, 0.04, 0.03]  # 增加更多尝试选项
     result = -1
     successful_height = None  # Track which height worked for THIS robot
     
