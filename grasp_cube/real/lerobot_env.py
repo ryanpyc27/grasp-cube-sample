@@ -11,7 +11,6 @@ from typing import Any, SupportsFloat
 from lerobot.robots import make_robot_from_config
 from lerobot.teleoperators import make_teleoperator_from_config
 from lerobot.processor.factory import make_default_processors
-from lerobot.utils.control_utils import init_keyboard_listener
 from lerobot.policies.utils import make_robot_action
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig
@@ -51,16 +50,30 @@ class LeRobotEnv(gym.Env):
         self.robot.connect()
         if self.teleop is not None:
             self.teleop.connect()
-            
-        listener, events = init_keyboard_listener()
-        self.listener = listener
-        self.events = events
         
         self.dry_run = config.dry_run
         self.timestamp = 0
         self.episode_time_s = config.episode_time_s
         self.fps = config.fps
         self.task = config.task
+        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(self.action_dim,), dtype=np.float32)
+        self.observation_space = gym.spaces.Dict({
+            "states": gym.spaces.Dict({
+                "arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            }) if self.robot.robot_type == "so101" else gym.spaces.Dict({
+                "left_arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+                "right_arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            }),
+            "images": gym.spaces.Dict({
+                "front": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                "wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+            }) if self.robot.robot_type == "so101" else gym.spaces.Dict({
+                "front": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                "left_wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                "right_wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+            }),
+            "task": gym.spaces.Text(max_length=100, charset="1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ \n!@#$%^&*()-_=+[]{}|;:'\",.<>?/`~"),
+        })
         
     @property
     def action_dim(self) -> int:
@@ -89,11 +102,6 @@ class LeRobotEnv(gym.Env):
         return obs
         
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
-        print("Resetting environment...")
-        while self.teleop is not None and not self.events["exit_early"]:
-            self.teleop_step()
-        self.events["exit_early"] = False
-        print("Environment reset complete.")
         self.timestamp = 0
         self.start_episode_t = time.perf_counter()
         obs = self.robot.get_observation()
@@ -135,8 +143,7 @@ class LeRobotEnv(gym.Env):
         busy_wait(1 / self.fps - dt_s)
 
         self.timestamp = time.perf_counter() - self.start_episode_t
-        done = self.timestamp >= self.episode_time_s or self.events["exit_early"]
-        self.events["exit_early"] = False
+        done = self.timestamp >= self.episode_time_s
         reward = 0.0
         info = {
             "timestamp": self.timestamp,
@@ -149,9 +156,6 @@ class LeRobotEnv(gym.Env):
         self.robot.disconnect()
         if self.teleop is not None:
             self.teleop.disconnect()
-        if self.listener is not None:
-            self.listener.stop()
-        
     
 if __name__ == "__main__":
     config = tyro.cli(LeRobotEnvConfig)

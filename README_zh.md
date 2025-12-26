@@ -8,6 +8,10 @@
 
 ## 更新
 
+为了加快真机部署流程，加入 server-client 结构的实现样例和通过重放数据集轨迹的 FakeLeRobotEnv。下文中关于真机部分的说明。
+
+为了方便之后的测试,我们提供了一份 docker 打包指南,最终真机测试的策略请参考这个打包指南提交.
+
 加入真机部署代码的样例，仿真评测流程可以参考真机评测的代码。其中真机部署的供参考的策略使用的是与 submodule 相同版本的 ACT 策略。
 如果在尝试 LeRobot ACT 在仿真中部署失败可以参考 `grasp_cube/real/act_policy.py` 的实现。**其中非常重要的一点是 LeRobot 除了载入策略外，还需要载入数据的预处理器和后处理器。**
 
@@ -40,6 +44,55 @@ git submodule update --init --recursive
 cd external/lerobot
 uv pip install -e .
 ```
+
+## 真机
+
+我们将使用 server-client 的形式在真机上测试模型,这样做的好处是将你的模型和环境完全解耦,防止一些由于耦合带来的风险.
+
+### 客户端
+
+环境作为客户端,我们在目前的代码仓库中提供了最后用于测试的真机环境封装,和用于调试的模拟真机环境,在进行真机测试以前,可以用模拟真机环境去检验模型侧的封装是否正确.
+
+客户端这一侧,推荐新建一个 python 环境,安装我们提供在 submodule 里的 LeRobot 库和下面的 `env_client` 库.
+
+```
+uv pip install -e packages/env-client 
+```
+
+模拟真机环境的运行方式为:
+
+```
+uv run grasp_cube/real/run_fake_env_client.py --env.dataset-path datasets/lift
+```
+
+其中 dataset-path 为我们提供的 LeRobot Dataset.
+
+成功运行后,你会看到
+
+```
+[MonitorWrapper] Panel: http://0.0.0.0:9000
+[EvalRecordWrapper] Output dir: outputs/eval_records/20251226_124302
+Waiting for server at ws://0.0.0.0:8000...
+Connection refused, retrying in 5 seconds...
+```
+
+你可以打开网页 http://0.0.0.0:9000 看到交互界面,其中 Stop 会直接向环境发送终止的指令, 点击 Stop 时, 会让你选择这次评测是否成功,点击完成后,环境会进入等待 Reset 状态,在点击 Reset 后会执行下一次评测.
+
+![Monitor](assets/monitor.png)
+
+对于模拟真机环境来说,默认在 `outputs` 下还会输出策略输出 action 与数据集 ground truth actoin 的对比,可用于检验你们的 I/O 是否一致.
+
+### 服务器
+
+服务器侧你可以完全使用你自己的依赖, 但仍然需要安装 
+
+```
+uv pip install -e packages/env-client 
+```
+
+请参考目前 `grasp_cube/real/act_policy.py` 和 `grasp_cube/real/serve_act_policy.py` 将你自己的策略封装为可以运行的服务器.
+
+在提交时,请上传 docker 镜像,参考 [Packaging Your Policy Server with Docker](docker_tutorial.md).
 
 ## 初步使用
 

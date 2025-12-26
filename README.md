@@ -8,6 +8,13 @@ This repository provides a reference implementation of an SO101 robot arm perfor
 
 ## Important Update
 
+### New
+
+To accelerate the real-robot deployment process, we provide an example implementation of a server-client structure as well as a `FakeLeRobotEnv` that replays dataset trajectories. The following section explains the real-robot setup.
+
+For convenient testing later, we provide a [Docker packaging guide](./docker_tutorial.md). Please refer to this guide when submitting the policy for final real-robot testing.
+
+### Earlier
 
 Add real-world deployment code samples. The simulation eval workflow is similar to the real-world eval code. The reference deployment policy uses the same ACT version as the submodule.
 
@@ -46,6 +53,57 @@ git submodule update --init --recursive
 cd external/lerobot
 uv pip install -e .
 ```
+
+## Real Robot
+
+We will test the model on the real robot using a server-client setup. The advantage of this approach is that it fully decouples your model from the environment, preventing risks caused by tight coupling.
+
+### Client
+
+The environment acts as the client. In the current code repository, we provide a packaged real-device environment for final testing and a simulated real-device environment for debugging. Before testing on the real device, you can use the simulated environment to verify that the model-side packaging is correct.
+
+On the client side, it is recommended to create a new Python environment and install the LeRobot library provided in the submodule before running.
+And you also need to install `env_client` in this repo.
+
+```
+uv pip install -e packages/env-client
+```
+
+The simulated real-device environment can be run as follows:
+
+```
+uv run grasp_cube/real/run_fake_env_client.py --env.dataset-path datasets/lift
+```
+
+Here, dataset-path refers to the LeRobot Dataset we provide.
+
+After successful execution, you will see:
+
+```
+[MonitorWrapper] Panel: http://0.0.0.0:9000
+[EvalRecordWrapper] Output dir: outputs/eval_records/20251226_124302
+Waiting for server at ws://0.0.0.0:8000...
+Connection refused, retrying in 5 seconds...
+```
+
+You can open the webpage http://0.0.0.0:9000 to view the interactive interface. Clicking Stop sends a termination command directly to the environment. When you click Stop, you will be prompted to indicate whether this evaluation was successful. After confirming, the environment will enter a waiting for Reset state. Clicking Reset will start the next evaluation.
+
+![Monitor](assets/monitor.png)
+
+
+For the simulated environment, by default, the outputs folder also contains a comparison between the policy output actions and the ground truth actions from the dataset. This can be used to verify whether your I/O is consistent.
+
+### Server
+
+On the server side, you can use your own dependencies without worrying about how the environment is implemented. Only you need to do is to install `env_client` by
+
+```
+pip install -e packages/env-client
+```
+
+Please refer to `grasp_cube/real/act_policy.py` and `grasp_cube/real/serve_act_policy.py` to wrap your own policy into a runnable server.
+
+When submitting, please upload a Docker image. Refer to [Packaging Your Policy Server with Docker](docker_tutorial.md).
 
 ## Getting Started
 
