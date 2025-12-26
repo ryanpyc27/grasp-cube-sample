@@ -14,7 +14,7 @@ class LeRobotACTPolicyConfig:
     path: pathlib.Path
     robot_type: Literal["so101", "bi_so101"] = "so101"
     device: str = "cuda"
-    act_steps: int = 16
+    act_steps: int | None = None
     
 class LeRobotACTPolicy:
     def __init__(self, config: LeRobotACTPolicyConfig):
@@ -57,7 +57,10 @@ class LeRobotACTPolicy:
         action_chunk = self.policy.predict_action_chunk(obs_infer_processed).swapaxes(0, 1).cpu()
         for i in range(len(action_chunk)):
             action_chunk[i] = self.postprocessor(action_chunk[i])
-        return action_chunk[:self.act_steps, 0].numpy()
+        if self.act_steps is None:
+            return action_chunk[:, 0].numpy()
+        else:
+            return action_chunk[:self.act_steps, 0].numpy()
     
     def reset(self):
         print("Resetting LeRobotACTPolicy")
