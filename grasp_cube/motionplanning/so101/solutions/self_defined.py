@@ -495,7 +495,8 @@ def close_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int, drawer_idx:
 
 
 def compute_grasp_pose(env: SelfDefinedSO101Env, cube, agent: BaseAgent) -> sapien.Pose:
-    """Compute grasp pose for a cube using specified agent."""
+    """Compute grasp pose for a cube using specified agent.
+    Mimics the implementation from pick_cube.py"""
     FINGER_LENGTH = 0.025
     obb = get_actor_obb(cube)
     approaching = np.array([0, 0, -1])
@@ -511,14 +512,17 @@ def compute_grasp_pose(env: SelfDefinedSO101Env, cube, agent: BaseAgent) -> sapi
         depth=FINGER_LENGTH,
     )
     
-    # Build grasp pose at cube position
+    # Build grasp pose at cube position (use actual cube position like pick_cube.py)
     cube_pos = cube.pose.sp.p
-    adjusted_pos = cube_pos.copy()
-    adjusted_pos[2] = env.unwrapped.cube_half_size + 0.003
+    # Convert to numpy if it's a tensor
+    if hasattr(cube_pos, 'cpu'):
+        cube_pos = cube_pos.cpu().numpy()
+    if len(cube_pos.shape) > 1:
+        cube_pos = cube_pos[0]
     
-    grasp_pose = agent.build_grasp_pose(approaching, grasp_info["closing"], adjusted_pos)
+    grasp_pose = agent.build_grasp_pose(approaching, grasp_info["closing"], cube_pos)
     
-    # Transform for SO101
+    # Transform for SO101 (same as pick_cube.py)
     grasp_pose = grasp_pose * sapien.Pose(q=np.array([-1, 0, 0, 1]) / np.sqrt(2))
     
     return grasp_pose
@@ -528,6 +532,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
                               cube, env: SelfDefinedSO101Env):
     """
     Pick up cube and place it into the open drawer.
+    Exactly mimics pick_cube.py grasp approach.
     
     Args:
         planner: Motion planner
@@ -539,52 +544,57 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     agent = planner.agent1 if robot_idx == 0 else planner.agent2
     
-    # Compute grasp pose
+    # -------------------------------------------------------------------------- #
+    # Compute grasp pose (exactly like pick_cube.py)
+    # -------------------------------------------------------------------------- #
     grasp_pose = compute_grasp_pose(env, cube, agent)
     
-    # Phase 1: Open gripper
+    # -------------------------------------------------------------------------- #
+    # Phase 1: Open gripper (exactly like pick_cube.py)
+    # -------------------------------------------------------------------------- #
     planner.open_gripper(robot_idx, t=6)
     
-    # Phase 2: Move above cube
-    approach_heights = [0.06, 0.05, 0.04]
-    result = -1
-    for approach_height in approach_heights:
-        above_cube_pose = sapien.Pose([0, 0, approach_height]) * grasp_pose
-        result = planner.move_robot_to_pose(robot_idx, above_cube_pose)
-        if result != -1:
-            break
-    
+    # -------------------------------------------------------------------------- #
+    # Phase 2: Reach - move to approach position (exactly like pick_cube.py)
+    # pick_cube.py line 50: reach_pose = sapien.Pose([0, 0.02, 0.03]) * grasp_pose
+    # -------------------------------------------------------------------------- #
+    reach_pose = sapien.Pose([0, 0.02, 0.03]) * grasp_pose
+    result = planner.move_robot_to_pose(robot_idx, reach_pose)
     if result == -1:
-        print(f"Robot {robot_idx + 1} failed to approach cube")
+        print(f"Robot {robot_idx + 1} failed to reach approach position")
         return -1
     
-    # Phase 3: Descend to grasp
-    result = planner.move_robot_to_pose(robot_idx, grasp_pose, refine_steps=8)
+    # -------------------------------------------------------------------------- #
+    # Phase 3: Grasp - descend to grasp position (exactly like pick_cube.py)
+    # pick_cube.py line 59: planner.move_to_pose_with_RRTConnect(sapien.Pose([0, 0, 0]) * grasp_pose)
+    # -------------------------------------------------------------------------- #
+    result = planner.move_robot_to_pose(robot_idx, sapien.Pose([0, 0, 0]) * grasp_pose, refine_steps=8)
     if result == -1:
-        print(f"Robot {robot_idx + 1} failed to reach cube")
+        print(f"Robot {robot_idx + 1} failed to reach grasp position")
         return -1
     
-    # Phase 4: Grasp cube
-    planner.close_gripper(robot_idx, t=25)
+    # -------------------------------------------------------------------------- #
+    # Phase 4: Close gripper (exactly like pick_cube.py)
+    # pick_cube.py line 60: planner.close_gripper(t=12)
+    # -------------------------------------------------------------------------- #
+    planner.close_gripper(robot_idx, t=12)
     
-    # Stabilize
-    qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
-    qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-    for _ in range(15):
-        action1 = planner._make_action(qpos1, planner.gripper_state1)
-        action2 = planner._make_action(qpos2, planner.gripper_state2)
-        planner._step_env(action1, action2)
+    print(f"Robot {robot_idx + 1} successfully grasped cube!")
     
+    # -------------------------------------------------------------------------- #
     # Phase 5: Lift cube
+    # -------------------------------------------------------------------------- #
     lift_pose = sapien.Pose([0, 0, 0.08]) * grasp_pose
     result = planner.move_robot_to_pose(robot_idx, lift_pose, refine_steps=8)
     if result == -1:
         print(f"Robot {robot_idx + 1} failed to lift cube")
         # Continue anyway
     
+    # -------------------------------------------------------------------------- #
     # Phase 6: Move to drawer position
+    # -------------------------------------------------------------------------- #
     # Calculate drawer target position (inside the open drawer)
-    cabinet_pose = env.cabinet.get_pose()
+    cabinet_pose = sapien.Pose(p=[0.240, 0.250, 0.15])
     cabinet_pos = cabinet_pose.p.cpu().numpy() if hasattr(cabinet_pose.p, 'cpu') else cabinet_pose.p
     if len(cabinet_pos.shape) > 1:
         cabinet_pos = cabinet_pos[0]
@@ -608,7 +618,9 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     print(f"Target position in drawer: [{drawer_target_world[0]:.3f}, {drawer_target_world[1]:.3f}, {drawer_target_world[2]:.3f}]")
     
+    # -------------------------------------------------------------------------- #
     # Phase 7: Move to above drawer target
+    # -------------------------------------------------------------------------- #
     elevated_target = drawer_target_world.copy()
     elevated_target[2] += 0.08  # High above to clear drawer edges
     goal_pose = sapien.Pose(elevated_target, grasp_pose.q)
@@ -619,14 +631,18 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         planner.open_gripper(robot_idx, t=10)
         return result
     
+    # -------------------------------------------------------------------------- #
     # Phase 8: Lower into drawer (or drop if too hard)
+    # -------------------------------------------------------------------------- #
     place_target = drawer_target_world.copy()
     place_pose = sapien.Pose(place_target, grasp_pose.q)
     result = planner.move_robot_to_pose(robot_idx, place_pose, refine_steps=12)
     if result == -1:
         print(f"Robot {robot_idx + 1} cannot reach inside drawer, dropping cube...")
     
+    # -------------------------------------------------------------------------- #
     # Phase 9: Release cube
+    # -------------------------------------------------------------------------- #
     planner.open_gripper(robot_idx, t=15)
     
     # Wait for cube to settle
@@ -637,7 +653,9 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         action2 = planner._make_action(qpos2, planner.gripper_state2)
         planner._step_env(action1, action2)
     
+    # -------------------------------------------------------------------------- #
     # Phase 10: Retreat
+    # -------------------------------------------------------------------------- #
     retreat_pose = sapien.Pose([place_target[0], place_target[1], place_target[2] + 0.12], grasp_pose.q)
     planner.move_robot_to_pose(robot_idx, retreat_pose, refine_steps=5)
     

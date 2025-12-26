@@ -41,7 +41,7 @@ class SelfDefinedSO101Env(BaseEnv):
     ]
     cube_half_size = 0.015
     goal_thresh = 0.015 * 1.25
-    cube_spawn_half_size = (0.083, 0.082)
+    cube_spawn_half_size = (0.000, 0.000)
     cube_spawn_center = (0.121, 0.25)
     sensor_cam_eye_pos = [0.316, 0.260, 0.407 + 0.01]
     sensor_cam_target_pos = [0.316, 0.260, 0.01]
@@ -52,7 +52,7 @@ class SelfDefinedSO101Env(BaseEnv):
     target_region_half_size = (0.083, 0.082)
     red_cube_target_region_center = (0.121, 0.25)
     robot1_position = [0.300, 0.040, 0.01]
-    robot2_position = [0.119, 0.080, 0.01]
+    robot2_position = [0.119, 0.040, 0.01]
 
     def __init__(self, *args, robot_uids=("so101", "so101"), robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise

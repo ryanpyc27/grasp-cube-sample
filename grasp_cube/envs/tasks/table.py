@@ -20,14 +20,14 @@ class MyTableBuilder(SceneBuilder):
     We add bands on the table to fit the real robot setting. 
     """
 
-    def build(self):
+    def build(self, table_shape=[0.6, 0.6, 0.01]):
         builder = self.scene.create_actor_builder()
         model_dir = Path(osp.dirname(__file__)) / "assets"
 
         # add table
         self.table_pose = sapien.Pose(p = [0.3, 0.3, 0.01 / 2], q=euler2quat(0, 0, 0))
         self.table_q = euler2quat(0, 0, 0)
-        table_half_size = (0.6 / 2, 0.6 / 2, 0.01 / 2)
+        table_half_size = (table_shape[0] / 2, table_shape[1] / 2, table_shape[2] / 2)
         builder.add_box_visual(
             pose=self.table_pose,
             half_size = table_half_size, 
