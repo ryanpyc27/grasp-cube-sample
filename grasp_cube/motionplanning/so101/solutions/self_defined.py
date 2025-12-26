@@ -558,7 +558,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     # Phase 2: Reach - move to approach position (exactly like pick_cube.py)
     # pick_cube.py line 50: reach_pose = sapien.Pose([0, 0.02, 0.03]) * grasp_pose
     # -------------------------------------------------------------------------- #
-    reach_pose = sapien.Pose([0, 0.02, 0.03]) * grasp_pose
+    reach_pose = sapien.Pose([0, -0.02, 0.01]) * grasp_pose
     result = planner.move_robot_to_pose(robot_idx, reach_pose)
     if result == -1:
         print(f"Robot {robot_idx + 1} failed to reach approach position")
@@ -582,48 +582,95 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     print(f"Robot {robot_idx + 1} successfully grasped cube!")
     
     # -------------------------------------------------------------------------- #
-    # Phase 5: Lift cube
+    # Phase 5: Lift cube with upright pose and rotation
     # -------------------------------------------------------------------------- #
-    lift_pose = sapien.Pose([0, 0, 0.08]) * grasp_pose
-    result = planner.move_robot_to_pose(robot_idx, lift_pose, refine_steps=8)
-    if result == -1:
-        print(f"Robot {robot_idx + 1} failed to lift cube")
+    # Step 5a: Lift slightly first
+    # lift_pose = sapien.Pose([0, 0, 0.08]) * grasp_pose
+    # result = planner.move_robot_to_pose(robot_idx, lift_pose, refine_steps=8)
+    # if result == -1:
+    #     print(f"Robot {robot_idx + 1} failed to initial lift")
+    #     # Continue anyway
+    
+    # Step 5b: Move to upright pose (end effector pointing up)
+    print(f"\n--- Step 5b: Moving to upright position ---")
+    
+    # Create upright orientation (gripper pointing up: z-axis up, x-axis forward)
+    # For SO101, upright means the gripper fingers point up
+    upright_qpos = np.array([0.0, -0.3, 0.0, -1.5, 0.0, 1.2, 0.0])
+    
+    # 获取正确的robot的当前关节位置
+    current_qpos = planner._get_current_qpos(robot_idx)
+    planner_obj = planner.planner1 if robot_idx == 0 else planner.planner2
+    joint_limits_len = len(planner_obj.joint_vel_limits)
+    
+    upright_qpos_trimmed = upright_qpos[:joint_limits_len]
+    current_qpos_trimmed = current_qpos[:joint_limits_len]
+    
+    result_robot_upright = planner_obj.plan_qpos_to_qpos(
+        [upright_qpos_trimmed],
+        current_qpos_trimmed,
+        time_step=planner.base_env.control_timestep,
+        use_point_cloud=False,
+        planning_time=10.0,
+    )
+    
+    # 检查规划是否成功并执行
+    if result_robot_upright["status"] == "Success":
+        result = planner._follow_path(robot_idx, result_robot_upright, refine_steps=5)
+        print(f"  ✓ Robot {robot_idx + 1} reached upright pose")
+    else:
+        print(f"  ⚠ Warning: Robot {robot_idx + 1} failed to plan upright ({result_robot_upright['status']})")
         # Continue anyway
+    
+    # Step 5c: Rotate base joint (joint 0) 45 degrees clockwise
+    print(f"\n--- Step 5c: Rotating base joint 45° clockwise ---")
+    current_qpos = planner._get_current_qpos(robot_idx)
+    planner_obj = planner.planner1 if robot_idx == 0 else planner.planner2
+    joint_limits_len = len(planner_obj.joint_vel_limits)
+    current_qpos_trimmed = current_qpos[:joint_limits_len]
+    
+    # Only rotate joint 0 (base joint) by -45 degrees (clockwise)
+    rotated_qpos = current_qpos_trimmed.copy()
+    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi / 4  # -45° = 顺时针
+    
+    result_rotate = planner_obj.plan_qpos_to_qpos(
+        [rotated_qpos],
+        current_qpos_trimmed,
+        time_step=planner.base_env.control_timestep,
+        use_point_cloud=False,
+        planning_time=10.0,
+    )
+    
+    if result_rotate["status"] == "Success":
+        result = planner._follow_path(robot_idx, result_rotate, refine_steps=5)
+        print(f"  ✓ Base joint rotated 45° clockwise")
+    else:
+        print(f"  ⚠ Warning: Failed to rotate base joint ({result_rotate['status']}), continuing anyway...")
+    
+    # Get updated orientation for later use
+    agent = planner.agent1 if robot_idx == 0 else planner.agent2
+    rotated_tcp_q = agent.tcp_pose.sp.q
+    if hasattr(rotated_tcp_q, 'cpu'):
+        rotated_tcp_q = rotated_tcp_q.cpu().numpy()
+    if len(rotated_tcp_q.shape) > 1:
+        rotated_tcp_q = rotated_tcp_q[0]
+    rotated_quat = rotated_tcp_q
     
     # -------------------------------------------------------------------------- #
     # Phase 6: Move to drawer position
     # -------------------------------------------------------------------------- #
     # Calculate drawer target position (inside the open drawer)
     cabinet_pose = sapien.Pose(p=[0.240, 0.250, 0.15])
-    cabinet_pos = cabinet_pose.p.cpu().numpy() if hasattr(cabinet_pose.p, 'cpu') else cabinet_pose.p
-    if len(cabinet_pos.shape) > 1:
-        cabinet_pos = cabinet_pos[0]
     
-    # Target: inside the bottom drawer
-    # After cabinet rotation (90° clockwise), drawer opens in +x direction
-    # Place cube slightly inside the drawer
-    from transforms3d.quaternions import quat2mat
-    cabinet_quat = cabinet_pose.q.cpu().numpy() if hasattr(cabinet_pose.q, 'cpu') else cabinet_pose.q
-    if len(cabinet_quat.shape) > 1:
-        cabinet_quat = cabinet_quat[0]
-    
-    rot_mat = quat2mat([cabinet_quat[0], cabinet_quat[1], cabinet_quat[2], cabinet_quat[3]])
-    
-    # Drawer interior position in local frame, then transform to world
-    drawer_local_target = np.array([0.0, -0.3, -0.05]) * 0.2  # Inside bottom drawer
-    drawer_target_world = cabinet_pos + rot_mat @ drawer_local_target
-    
-    # Cube should be placed at table height inside drawer
-    drawer_target_world[2] = env.cube_half_size + 0.02
-    
-    print(f"Target position in drawer: [{drawer_target_world[0]:.3f}, {drawer_target_world[1]:.3f}, {drawer_target_world[2]:.3f}]")
+    print(f"Target position in drawer: [{cabinet_pose.p[0]:.3f}, {cabinet_pose.p[1]:.3f}, {cabinet_pose.p[2]:.3f}]")
     
     # -------------------------------------------------------------------------- #
     # Phase 7: Move to above drawer target
     # -------------------------------------------------------------------------- #
-    elevated_target = drawer_target_world.copy()
-    elevated_target[2] += 0.08  # High above to clear drawer edges
-    goal_pose = sapien.Pose(elevated_target, grasp_pose.q)
+    elevated_target = cabinet_pose.p.copy()
+    elevated_target[2] += 0.00  # High above to clear drawer edges
+    # Use the rotated orientation instead of original grasp_pose.q
+    goal_pose = sapien.Pose(elevated_target, rotated_quat)
     result = planner.move_robot_to_pose(robot_idx, goal_pose, refine_steps=8)
     if result == -1:
         print(f"Robot {robot_idx + 1} failed to reach above drawer")
@@ -631,14 +678,6 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         planner.open_gripper(robot_idx, t=10)
         return result
     
-    # -------------------------------------------------------------------------- #
-    # Phase 8: Lower into drawer (or drop if too hard)
-    # -------------------------------------------------------------------------- #
-    place_target = drawer_target_world.copy()
-    place_pose = sapien.Pose(place_target, grasp_pose.q)
-    result = planner.move_robot_to_pose(robot_idx, place_pose, refine_steps=12)
-    if result == -1:
-        print(f"Robot {robot_idx + 1} cannot reach inside drawer, dropping cube...")
     
     # -------------------------------------------------------------------------- #
     # Phase 9: Release cube
@@ -652,12 +691,6 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         action1 = planner._make_action(qpos1, planner.gripper_state1)
         action2 = planner._make_action(qpos2, planner.gripper_state2)
         planner._step_env(action1, action2)
-    
-    # -------------------------------------------------------------------------- #
-    # Phase 10: Retreat
-    # -------------------------------------------------------------------------- #
-    retreat_pose = sapien.Pose([place_target[0], place_target[1], place_target[2] + 0.12], grasp_pose.q)
-    planner.move_robot_to_pose(robot_idx, retreat_pose, refine_steps=5)
     
     print(f"Robot {robot_idx + 1} finished placing cube in drawer")
     return result
