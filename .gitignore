@@ -13,6 +13,7 @@ wandb
 runs
 demos
 datasets
+outputs
 log/
 eval_videos/
 output_images/
