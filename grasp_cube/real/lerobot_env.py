@@ -46,7 +46,6 @@ class LeRobotEnv(gym.Env):
         self.teleop_action_processor = teleop_action_processor
         self.robot_action_processor = robot_action_processor
         self.robot_observation_processor = robot_observation_processor
-        import ipdb; ipdb.set_trace()
         self.robot.connect()
         if self.teleop is not None:
             self.teleop.connect()
