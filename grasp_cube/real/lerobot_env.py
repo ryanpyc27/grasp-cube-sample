@@ -25,8 +25,8 @@ class LeRobotEnvConfig:
     camera_config_path: pathlib.Path
     teleop: so101_leader.SO101LeaderConfig | bi_so101_leader.BiSO101LeaderConfig | None = None
     task: str = ""
-    dry_run: bool = True
-    episode_time_s: float = 60.0
+    dry_run: bool = False
+    episode_time_s: float = 600.0
     fps: int = 30
     
     def __post_init__(self):
