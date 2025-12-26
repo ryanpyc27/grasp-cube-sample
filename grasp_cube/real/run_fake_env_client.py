@@ -15,6 +15,7 @@ class Args:
     eval: EvalRecordConfig
     host: str = "0.0.0.0"
     port: int = 8000
+    monitor_host: str = "0.0.0.0"
     monitor_port: int = 9000
     num_episodes: int = 10
     
@@ -23,7 +24,7 @@ def main(args: Args):
         "FakeLeRobotEnv-v0",
         config=args.env,
     )
-    env = MonitorWrapper(env, port=args.monitor_port, host=args.host, include_images=True)
+    env = MonitorWrapper(env, port=args.monitor_port, host=args.monitor_host, include_images=True)
     env = EvalRecordWrapper(env, config=args.eval)
     client = _websocket_client_policy.WebsocketClientPolicy(args.host, args.port)
     for episode in range(args.num_episodes):
