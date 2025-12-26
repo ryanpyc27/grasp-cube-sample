@@ -60,14 +60,14 @@ class LeRobotEnv(gym.Env):
         self.observation_space = gym.spaces.Dict({
             "states": gym.spaces.Dict({
                 "arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
-            }) if self.robot.robot_type == "so101" else gym.spaces.Dict({
+            }) if self.robot.robot_type == "so_101" else gym.spaces.Dict({
                 "left_arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
                 "right_arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
             }),
             "images": gym.spaces.Dict({
                 "front": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
-            }) if self.robot.robot_type == "so101" else gym.spaces.Dict({
+            }) if self.robot.robot_type == "so_101" else gym.spaces.Dict({
                 "front": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "left_wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "right_wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
