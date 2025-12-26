@@ -56,18 +56,22 @@ rm -r /root/autodl-tmp/lerobot_outputs
 
 python train.py env_id=StackCubeSO101-v1
 
+# Evaluate single-arm (so101) policy on StackCube task
+# Note: act_steps defaults to 16, so we use replan-steps 16 or None to use all predicted actions
 python eval_policy.py \
     --policy.path log/stack_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type so101 \
+    --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id StackCubeSO101-v1 \
-    --replan-steps 32 \
-    --num-episodes 10
+    --num-episodes 100
 
+# Evaluate dual-arm (bi_so101) policy on SortCube task
+# Note: act_steps defaults to 16, so we use replan-steps 16 or None to use all predicted actions
 python eval_policy.py \
     --policy.path log/sort_cube_200samples_200ksteps/checkpoints/last/pretrained_model \
     --policy.robot-type bi_so101 \
+    --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SortCubeSO101-v1 \
-    --replan-steps 32 \
     --num-episodes 100

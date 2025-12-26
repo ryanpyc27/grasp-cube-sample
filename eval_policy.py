@@ -224,7 +224,7 @@ class ManiSkillEnvWrapper:
 class Args:
     policy: LeRobotACTPolicyConfig
     env_id: str = "StackCubeSO101-v1"
-    replan_steps: int | None = 32
+    replan_steps: int | None = None  # If None, use all predicted actions from policy
     num_episodes: int = 10
     max_steps: int = 1000
     seed: int = 0
@@ -295,10 +295,13 @@ def main(args: Args):
                 # Assert action shape as in evaluate.py
                 assert action.ndim == 2, f"Expected action to have 2 dimensions, got {action.ndim}"
                 
-                # Apply replan_steps if specified
+                # Apply replan_steps if specified, otherwise use all predicted actions
                 if args.replan_steps is not None:
-                    assert action.shape[0] >= args.replan_steps, f"Expected action shape[0] >= {args.replan_steps}, got {action.shape[0]}"
-                    action = action[:args.replan_steps]
+                    # Only use up to replan_steps, but don't require it to be longer
+                    actual_steps = min(args.replan_steps, action.shape[0])
+                    action = action[:actual_steps]
+                    if action.shape[0] < args.replan_steps:
+                        print(f"Warning: Policy predicted {action.shape[0]} steps, but replan_steps={args.replan_steps}. Using {action.shape[0]} steps.")
                 
                 # Check action dimension matches environment
                 assert action.shape[1] == env.action_dim, f"Expected action shape[1] == {env.action_dim}, got {action.shape[1]}"
@@ -349,22 +352,29 @@ if __name__ == "__main__":
     main(args)
     
 """
-Usage example:
+Usage examples:
 
+# Single-arm robot (so101) - StackCube task
 python eval_policy.py \
     --policy.path log/stack_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type so101 \
+    --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id StackCubeSO101-v1 \
-    --replan-steps 32 \
     --num-episodes 100
 
+# Dual-arm robot (bi_so101) - SortCube task
 CUDA_VISIBLE_DEVICES=0 python eval_policy.py \
     --policy.path log/sort_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type bi_so101 \
+    --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SortCubeSO101-v1 \
-    --replan-steps 32 \
     --num-episodes 100 \
-    --seed 141
+    --save-video
+
+# Note: 
+# - replan-steps: How many steps to use from predicted action chunk (default: None = use all)
+# - act-steps: How many action steps the policy predicts (default: 16)
+# - If replan-steps > act-steps, it will automatically adjust to use act-steps
 """

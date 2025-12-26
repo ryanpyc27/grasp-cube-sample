@@ -119,7 +119,7 @@ class SelfDefinedSO101Env(BaseEnv):
         urdf_path = "/homes/yichengp/grasp-cube-sample/partnet-mobility-dataset/45290/mobility.urdf"
         loader = self.scene.create_urdf_loader()
         loader.fix_root_link = True  # Fix the cabinet base
-        loader.scale = 0.2  # Scale down the cabinet to 20% of original size
+        loader.scale = 0.3  # Scale down the cabinet to 20% of original size
         self.cabinet = loader.load(urdf_path)
         
         cabinet_rotation = euler2quat(0, 0, np.pi / 2.0)
@@ -163,8 +163,8 @@ class SelfDefinedSO101Env(BaseEnv):
         table_height = 0.01  # Table surface height
         cabinet_z_offset = 0.2  # Empirical offset for this cabinet model (scale 0.2)
         
-        desired_cabinet_x = 0.3  # Center of table
-        desired_cabinet_y = 0.4  # Center of table  
+        desired_cabinet_x = 0.3
+        desired_cabinet_y = 0.46
         desired_cabinet_z = table_height + cabinet_z_offset
         
         print(f"\n=== Cabinet Placement ===")

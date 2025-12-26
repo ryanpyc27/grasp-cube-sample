@@ -3,6 +3,7 @@ import sapien
 import mplib
 from transforms3d.euler import euler2quat
 from transforms3d import euler
+from transforms3d.quaternions import qmult
 
 from mani_skill.agents.base_agent import BaseAgent
 from mani_skill.utils.structs.pose import to_sapien_pose
@@ -246,17 +247,28 @@ def get_drawer_handle_pose(env: SelfDefinedSO101Env, agent: BaseAgent, drawer_id
     # Set handle position very close to current TCP - just move slightly in +y direction
     # Current TCP: [0.301, 0.275, 0.091]
     # Move just 2cm toward cabinet (+y direction)
-    handle_pos = current_tcp_p.copy()
-    handle_pos[1] -= 0.02  # Move 2cm toward cabinet (in -y direction to approach)
+    handle_pos = [0.301, 0.280, 0.091]
     
-    # Keep the same orientation as current TCP to avoid IK issues
-    handle_quat = current_tcp_q.copy()
+    # Rotate current TCP orientation by 90 degrees
+    # Choose which axis to rotate around:
+    
+    # Option 1: Rotate 90° around x-axis
+    rotation_quat = euler2quat(0, 0, 0)  # -90° around x-axis
+    handle_quat = qmult(current_tcp_q, rotation_quat)
+    
+    # Option 2: Rotate 90° around y-axis
+    # rotation_quat = euler2quat(0, np.pi/2, 0)  # 90° around y-axis
+    # handle_quat = qmult(current_tcp_q, rotation_quat)
+    
+    # Option 3: Rotate 90° around z-axis
+    # rotation_quat = euler2quat(0, 0, np.pi/2)  # 90° around z-axis
+    # handle_quat = qmult(current_tcp_q, rotation_quat)
     
     return sapien.Pose(p=handle_pos, q=handle_quat)
 
 
 def open_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int, 
-                drawer_idx: int, open_amount: float = 0.08):
+                drawer_idx: int, open_amount: float = 0.12):
     """
     Open a drawer by pulling it with the robot.
     
@@ -305,16 +317,16 @@ def open_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     print(f"Current TCP: [{current_tcp[0]:.3f}, {current_tcp[1]:.3f}, {current_tcp[2]:.3f}]")
     print(f"Target handle: [{target_pos[0]:.3f}, {target_pos[1]:.3f}, {target_pos[2]:.3f}]")
     
-    # Move to approach position (slightly back from handle in +y direction)
-    approach_pos = target_pos.copy()
-    approach_pos[1] += 0.01  # Just 1cm back from handle
-    approach_pose = sapien.Pose(p=approach_pos, q=handle_pose.q)
-    print(f"Approach pose at: [{approach_pos[0]:.3f}, {approach_pos[1]:.3f}, {approach_pos[2]:.3f}]")
-    result = planner.move_robot_to_pose(robot_idx, approach_pose, refine_steps=5)
-    if result == -1:
-        print(f"Robot {robot_idx + 1} failed to approach drawer, trying direct grasp...")
-        # If approach fails, try to go directly to handle
-        # Don't return -1 yet, continue to phase 2
+    # # Move to approach position (slightly back from handle in +y direction)
+    # approach_pos = target_pos.copy()
+    # approach_pos[1] += 0.01  # Just 1cm back from handle
+    # approach_pose = sapien.Pose(p=approach_pos, q=handle_pose.q)
+    # print(f"Approach pose at: [{approach_pos[0]:.3f}, {approach_pos[1]:.3f}, {approach_pos[2]:.3f}]")
+    # result = planner.move_robot_to_pose(robot_idx, approach_pose, refine_steps=5)
+    # if result == -1:
+    #     print(f"Robot {robot_idx + 1} failed to approach drawer, trying direct grasp...")
+    #     # If approach fails, try to go directly to handle
+    #     # Don't return -1 yet, continue to phase 2
     
     # Phase 2: Move to handle and grasp
     result = planner.move_robot_to_pose(robot_idx, handle_pose, refine_steps=8)
