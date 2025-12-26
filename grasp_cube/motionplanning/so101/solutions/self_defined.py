@@ -676,16 +676,101 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         # Use the rotated orientation instead of original grasp_pose.q
         goal_pose = sapien.Pose(elevated_target, rotated_quat)
         result = planner.move_robot_to_pose(robot_idx, goal_pose, refine_steps=8)
-    if result == -1:
-        print(f"Robot {robot_idx + 1} failed to reach above drawer")
-        # Try to drop cube from current position
-        planner.open_gripper(robot_idx, t=10)
-        return result
+        if result != -1:
+            print(f"  ✓ Reached position at height {elevated_target[2]:.3f}m (attempt {i+1}/40)")
+            break
     
+    if result == -1:
+        print(f"Robot {robot_idx + 1} failed to reach above drawer after 40 attempts")
+        print(f"  → Will try to adjust gripper and release from current position")
+    
+    # -------------------------------------------------------------------------- #
+    # Phase 8: Adjust gripper to tilt downward before releasing
+    # -------------------------------------------------------------------------- #
+    print(f"\n--- Phase 8: Adjusting gripper to tilt downward ---")
+    
+    # Get current TCP pose
+    agent = planner.agent1 if robot_idx == 0 else planner.agent2
+    current_tcp_pose = agent.tcp_pose.sp
+    current_tcp_p = current_tcp_pose.p
+    current_tcp_q = current_tcp_pose.q
+    
+    if hasattr(current_tcp_p, 'cpu'):
+        current_tcp_p = current_tcp_p.cpu().numpy()
+    if hasattr(current_tcp_q, 'cpu'):
+        current_tcp_q = current_tcp_q.cpu().numpy()
+    if len(current_tcp_p.shape) > 1:
+        current_tcp_p = current_tcp_p[0]
+    if len(current_tcp_q.shape) > 1:
+        current_tcp_q = current_tcp_q[0]
+    
+    # Check if gripper is already tilted downward
+    # Extract z-axis direction from current orientation (using rotation matrix)
+    from transforms3d.quaternions import quat2mat
+    rot_matrix = quat2mat([current_tcp_q[0], current_tcp_q[1], current_tcp_q[2], current_tcp_q[3]])
+    z_axis = rot_matrix[:, 2]  # z-axis direction (gripper closing direction)
+    
+    # Check if z-axis has significant downward component (z < 0)
+    is_tilted_down = z_axis[2] < -0.3  # If z-component < -0.3, it's tilted down
+    
+    print(f"  Current gripper z-axis direction: [{z_axis[0]:.3f}, {z_axis[1]:.3f}, {z_axis[2]:.3f}]")
+    print(f"  Is tilted downward: {is_tilted_down}")
+    
+    if not is_tilted_down:
+        print(f"  → Tilting gripper downward...")
+        
+        # Use Cartesian space rotation - more robust and universal
+        # Try multiple downward orientations
+        downward_quats = [
+            euler2quat(np.pi * 2/3, 0, 0),    # 120° tilt
+            euler2quat(np.pi * 3/4, 0, 0),    # 135° tilt
+            euler2quat(np.pi * 5/6, 0, 0),    # 150° tilt
+            euler2quat(np.pi / 2, 0, 0),      # 90° tilt
+        ]
+        
+        tilt_success = False
+        for idx, downward_quat in enumerate(downward_quats):
+            tilted_pose = sapien.Pose(current_tcp_p, downward_quat)
+            result_tilt = planner.move_robot_to_pose(robot_idx, tilted_pose, refine_steps=5)
+            
+            if result_tilt != -1:
+                print(f"    ✓ Gripper tilted downward (angle {idx+1}/4)")
+                tilt_success = True
+                break
+        
+        if not tilt_success:
+            print(f"    ⚠ Warning: Failed to tilt gripper with all angles")
+            
+            # Last resort: Try adjusting last joint in joint space
+            current_qpos = planner._get_current_qpos(robot_idx)
+            planner_obj = planner.planner1 if robot_idx == 0 else planner.planner2
+            joint_limits_len = len(planner_obj.joint_vel_limits)
+            current_qpos_trimmed = current_qpos[:joint_limits_len]
+            
+            print(f"    → Trying to adjust last joint (joint {joint_limits_len-1})...")
+            tilted_qpos = current_qpos_trimmed.copy()
+            tilted_qpos[-1] += np.pi / 4  # Rotate last joint by 45°
+            
+            result_tilt = planner_obj.plan_qpos_to_qpos(
+                [tilted_qpos],
+                current_qpos_trimmed,
+                time_step=planner.base_env.control_timestep,
+                use_point_cloud=False,
+                planning_time=5.0,
+            )
+            
+            if result_tilt["status"] == "Success":
+                planner._follow_path(robot_idx, result_tilt, refine_steps=3)
+                print(f"    ✓ Last joint adjusted")
+            else:
+                print(f"    ⚠ Warning: Could not adjust gripper orientation, releasing anyway...")
+    else:
+        print(f"  ✓ Gripper already tilted downward")
     
     # -------------------------------------------------------------------------- #
     # Phase 9: Release cube
     # -------------------------------------------------------------------------- #
+    print(f"\n--- Phase 9: Releasing cube ---")
     planner.open_gripper(robot_idx, t=15)
     
     # Wait for cube to settle
