@@ -631,7 +631,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     # Only rotate joint 0 (base joint) by -45 degrees (clockwise)
     rotated_qpos = current_qpos_trimmed.copy()
-    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi / 4  # -45° = 顺时针
+    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 11.0/ 36.0  # -45° = 顺时针
     
     result_rotate = planner_obj.plan_qpos_to_qpos(
         [rotated_qpos],
@@ -667,11 +667,15 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     # -------------------------------------------------------------------------- #
     # Phase 7: Move to above drawer target
     # -------------------------------------------------------------------------- #
-    elevated_target = cabinet_pose.p.copy()
-    elevated_target[2] += 0.00  # High above to clear drawer edges
-    # Use the rotated orientation instead of original grasp_pose.q
-    goal_pose = sapien.Pose(elevated_target, rotated_quat)
-    result = planner.move_robot_to_pose(robot_idx, goal_pose, refine_steps=8)
+    result = -1
+    for i in range(40): 
+        p = [0.240, 0.250, 0.15 + 0.01 * i]
+        cabinet_pose = sapien.Pose(p=p)
+        elevated_target = cabinet_pose.p.copy()
+        elevated_target[2] += 0.00  # High above to clear drawer edges
+        # Use the rotated orientation instead of original grasp_pose.q
+        goal_pose = sapien.Pose(elevated_target, rotated_quat)
+        result = planner.move_robot_to_pose(robot_idx, goal_pose, refine_steps=8)
     if result == -1:
         print(f"Robot {robot_idx + 1} failed to reach above drawer")
         # Try to drop cube from current position
