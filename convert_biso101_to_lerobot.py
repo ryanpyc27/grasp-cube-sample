@@ -12,8 +12,9 @@ import tyro
 import math
 import mani_skill
 import grasp_cube.envs.tasks.sort_cube_so101
+import grasp_cube.envs.tasks.self_defined_so101
 
-REPO_NAME = "sort_cube"
+REPO_NAME = "self_defined"
 
 def main(h5_path: Path, *, push_to_hub: bool = False):
     json_path = h5_path.with_suffix('.json')
@@ -145,7 +146,7 @@ def main(h5_path: Path, *, push_to_hub: bool = False):
     if push_to_hub:
         print("\nPushing to HuggingFace Hub...")
         dataset.push_to_hub(
-            tags=["sort_cube", "biso101"],
+            tags=["self_defined", "biso101"],
             private=False,
             push_videos=True,
             license="apache-2.0",

@@ -116,7 +116,7 @@ class SelfDefinedSO101Env(BaseEnv):
             initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
         )
         # Load cabinet from PartNet-Mobility dataset
-        urdf_path = "/homes/yichengp/grasp-cube-sample/partnet-mobility-dataset/45290/mobility.urdf"
+        urdf_path = "/homes/yichengp/grasp-cube-sample/partnet-mobility-dataset/45677/mobility.urdf"
         loader = self.scene.create_urdf_loader()
         loader.fix_root_link = True  # Fix the cabinet base
         loader.scale = 0.3  # Scale down the cabinet to 20% of original size
@@ -164,7 +164,7 @@ class SelfDefinedSO101Env(BaseEnv):
         cabinet_z_offset = 0.2  # Empirical offset for this cabinet model (scale 0.2)
         
         desired_cabinet_x = 0.3
-        desired_cabinet_y = 0.46
+        desired_cabinet_y = 0.47
         desired_cabinet_z = table_height + cabinet_z_offset
         
         print(f"\n=== Cabinet Placement ===")
@@ -262,8 +262,8 @@ class SelfDefinedSO101Env(BaseEnv):
             
             # Reset drawer joint properties to ensure no spring-back force
             for joint in self.drawer_joints:
-                joint.set_drive_properties(stiffness=1000, damping=50)
-                joint.set_friction(0.0)
+                joint.set_drive_properties(stiffness=0, damping=2)
+                joint.set_friction(0.0)  # No friction for smooth sliding
                 joint.set_drive_target(0)
                 joint.set_drive_velocity_target(0)
             

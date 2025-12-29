@@ -24,10 +24,18 @@ python convert_so101_to_lerobot.py \
 python convert_biso101_to_lerobot.py \
     --h5-path /dataset/grasp-cube/demos/SortCubeSO101-v1/motionplanning/20251223_062120.h5
 
+python convert_biso101_to_lerobot.py \
+    --h5-path /homes/yichengp/grasp-cube-sample/outputs/demos/SelfDefinedSO101-v1/motionplanning/20251229_112544.h5
+
 python upload_dataset_to_hf.py \
     --repo-id sort_cube \
     --root /dataset/grasp-cube/lerobot/sort_cube-SortCubeSO101-v1-pd_joint_pos-sensor_data-default \
     --hf-repo-id RyanPan315464/sort_cube_biso101
+
+python upload_dataset_to_hf.py \
+    --repo-id self_defined \
+    --root /homes/yichengp/.cache/huggingface/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
+    --hf-repo-id RyanPan315464/self_defined_biso101
 
 HF_HUB_OFFLINE=0 lerobot-train \
     --dataset.root=/dataset/grasp-cube/lerobot/stack_cube-StackCubeSO101-v1-pd_joint_pos-sensor_data-default \

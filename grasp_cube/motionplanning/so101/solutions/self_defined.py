@@ -18,7 +18,7 @@ class DualArmSO101MotionPlanner:
     Handles two robots independently while stepping the environment with combined actions.
     """
     OPEN = 0.6
-    CLOSED = 0
+    CLOSED = 0.0
     MOVE_GROUP = "gripper_link_tip"
     
     def __init__(
@@ -135,12 +135,15 @@ class DualArmSO101MotionPlanner:
         
         return obs, reward, terminated, truncated, info
     
-    def close_gripper(self, robot_idx: int, t: int = 12):
+    def close_gripper(self, robot_idx: int, t: int = 6, gripper_state: float = None):
         """Close gripper for specified robot (0 or 1)."""
+        if gripper_state is None:
+            gripper_state = self.CLOSED
+        
         if robot_idx == 0:
-            self.gripper_state1 = self.CLOSED
+            self.gripper_state1 = gripper_state
         else:
-            self.gripper_state2 = self.CLOSED
+            self.gripper_state2 = gripper_state
         
         qpos1 = self._get_current_qpos(0)[:len(self.planner1.joint_vel_limits)]
         qpos2 = self._get_current_qpos(1)[:len(self.planner2.joint_vel_limits)]
@@ -247,18 +250,18 @@ def get_drawer_handle_pose(env: SelfDefinedSO101Env, agent: BaseAgent, drawer_id
     # Set handle position very close to current TCP - just move slightly in +y direction
     # Current TCP: [0.301, 0.275, 0.091]
     # Move just 2cm toward cabinet (+y direction)
-    handle_pos = [0.301, 0.280, 0.091]
+    handle_pos = [0.301, 0.360, 0.220]
     
     # Rotate current TCP orientation by 90 degrees
     # Choose which axis to rotate around:
     
     # Option 1: Rotate 90° around x-axis
-    rotation_quat = euler2quat(0, 0, 0)  # -90° around x-axis
-    handle_quat = qmult(current_tcp_q, rotation_quat)
+    # rotation_quat = euler2quat(np.pi / 2, 0, 0)  # -90° around x-axis
+    # handle_quat = qmult(current_tcp_q, rotation_quat)
     
     # Option 2: Rotate 90° around y-axis
-    # rotation_quat = euler2quat(0, np.pi/2, 0)  # 90° around y-axis
-    # handle_quat = qmult(current_tcp_q, rotation_quat)
+    rotation_quat = euler2quat(0, np.pi/2, 0)  # 90° around y-axis
+    handle_quat = qmult(current_tcp_q, rotation_quat)
     
     # Option 3: Rotate 90° around z-axis
     # rotation_quat = euler2quat(0, 0, np.pi/2)  # 90° around z-axis
@@ -318,15 +321,15 @@ def open_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     print(f"Target handle: [{target_pos[0]:.3f}, {target_pos[1]:.3f}, {target_pos[2]:.3f}]")
     
     # # Move to approach position (slightly back from handle in +y direction)
-    # approach_pos = target_pos.copy()
-    # approach_pos[1] += 0.01  # Just 1cm back from handle
-    # approach_pose = sapien.Pose(p=approach_pos, q=handle_pose.q)
-    # print(f"Approach pose at: [{approach_pos[0]:.3f}, {approach_pos[1]:.3f}, {approach_pos[2]:.3f}]")
-    # result = planner.move_robot_to_pose(robot_idx, approach_pose, refine_steps=5)
-    # if result == -1:
-    #     print(f"Robot {robot_idx + 1} failed to approach drawer, trying direct grasp...")
-    #     # If approach fails, try to go directly to handle
-    #     # Don't return -1 yet, continue to phase 2
+    approach_pos = target_pos.copy()
+    approach_pos[1] -= 0.06
+    approach_pose = sapien.Pose(p=approach_pos, q=handle_pose.q)
+    print(f"Approach pose at: [{approach_pos[0]:.3f}, {approach_pos[1]:.3f}, {approach_pos[2]:.3f}]")
+    result = planner.move_robot_to_pose(robot_idx, approach_pose, refine_steps=5)
+    if result == -1:
+        print(f"Robot {robot_idx + 1} failed to approach drawer, trying direct grasp...")
+        # If approach fails, try to go directly to handle
+        # Don't return -1 yet, continue to phase 2
     
     # Phase 2: Move to handle and grasp
     result = planner.move_robot_to_pose(robot_idx, handle_pose, refine_steps=8)
@@ -394,37 +397,6 @@ def open_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         # AND continuously update drive target to lock drawer position
         qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
         qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-        for _ in range(15):  # Increased from 5 to 15
-            # Update drive target every step to prevent spring-back
-            current_qpos = env.cabinet.get_qpos()
-            if hasattr(current_qpos, 'cpu'):
-                current_qpos = current_qpos.cpu().numpy()
-            if len(current_qpos.shape) > 1:
-                current_qpos = current_qpos[0]
-            drawer_pos = float(current_qpos[drawer_idx])
-            env.drawer_joints[drawer_idx].set_drive_target(drawer_pos)
-            
-            action1 = planner._make_action(qpos1, planner.gripper_state1)
-            action2 = planner._make_action(qpos2, planner.gripper_state2)
-            planner._step_env(action1, action2)
-    
-    # Keep holding the drawer open with extra stabilization
-    # Continuously update drive target to lock position
-    qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
-    qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-    for _ in range(20):
-        # Update drive target every step to prevent spring-back
-        current_qpos = env.cabinet.get_qpos()
-        if hasattr(current_qpos, 'cpu'):
-            current_qpos = current_qpos.cpu().numpy()
-        if len(current_qpos.shape) > 1:
-            current_qpos = current_qpos[0]
-        drawer_pos = float(current_qpos[drawer_idx])
-        env.drawer_joints[drawer_idx].set_drive_target(drawer_pos)
-        
-        action1 = planner._make_action(qpos1, planner.gripper_state1)
-        action2 = planner._make_action(qpos2, planner.gripper_state2)
-        planner._step_env(action1, action2)
     
     print(f"Robot {robot_idx + 1} successfully opened drawer (holding handle)")
     return 0  # Success
@@ -581,22 +553,18 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     print(f"Robot {robot_idx + 1} successfully grasped cube!")
     
-    # -------------------------------------------------------------------------- #
-    # Phase 5: Lift cube with upright pose and rotation
-    # -------------------------------------------------------------------------- #
-    # Step 5a: Lift slightly first
-    # lift_pose = sapien.Pose([0, 0, 0.08]) * grasp_pose
-    # result = planner.move_robot_to_pose(robot_idx, lift_pose, refine_steps=8)
-    # if result == -1:
-    #     print(f"Robot {robot_idx + 1} failed to initial lift")
-    #     # Continue anyway
-    
     # Step 5b: Move to upright pose (end effector pointing up)
     print(f"\n--- Step 5b: Moving to upright position ---")
     
     # Create upright orientation (gripper pointing up: z-axis up, x-axis forward)
     # For SO101, upright means the gripper fingers point up
-    upright_qpos = np.array([0.0, -0.3, 0.0, -1.5, 0.0, 1.2, 0.0])
+    upright_qpos = np.array([0.025150669738650322,
+                            -0.33991164565086365,
+                            -0.5317384004592896,
+                            -0.60194976329803467,
+                            -1.8569945096969604,
+                            0.031005658209323883
+                            ])
     
     # 获取正确的robot的当前关节位置
     current_qpos = planner._get_current_qpos(robot_idx)
@@ -631,7 +599,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     # Only rotate joint 0 (base joint) by -45 degrees (clockwise)
     rotated_qpos = current_qpos_trimmed.copy()
-    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 11.0/ 36.0  # -45° = 顺时针
+    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 8.0/ 36.0  # -45° = 顺时针
     
     result_rotate = planner_obj.plan_qpos_to_qpos(
         [rotated_qpos],
@@ -655,117 +623,10 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     if len(rotated_tcp_q.shape) > 1:
         rotated_tcp_q = rotated_tcp_q[0]
     rotated_quat = rotated_tcp_q
-    
-    # -------------------------------------------------------------------------- #
-    # Phase 6: Move to drawer position
-    # -------------------------------------------------------------------------- #
-    # Calculate drawer target position (inside the open drawer)
-    cabinet_pose = sapien.Pose(p=[0.240, 0.250, 0.15])
-    
-    print(f"Target position in drawer: [{cabinet_pose.p[0]:.3f}, {cabinet_pose.p[1]:.3f}, {cabinet_pose.p[2]:.3f}]")
-    
-    # -------------------------------------------------------------------------- #
-    # Phase 7: Move to above drawer target
-    # -------------------------------------------------------------------------- #
-    result = -1
-    for i in range(40): 
-        p = [0.240, 0.250, 0.15 + 0.01 * i]
-        cabinet_pose = sapien.Pose(p=p)
-        elevated_target = cabinet_pose.p.copy()
-        elevated_target[2] += 0.00  # High above to clear drawer edges
-        # Use the rotated orientation instead of original grasp_pose.q
-        goal_pose = sapien.Pose(elevated_target, rotated_quat)
-        result = planner.move_robot_to_pose(robot_idx, goal_pose, refine_steps=8)
-        if result != -1:
-            print(f"  ✓ Reached position at height {elevated_target[2]:.3f}m (attempt {i+1}/40)")
-            break
-    
     if result == -1:
         print(f"Robot {robot_idx + 1} failed to reach above drawer after 40 attempts")
         print(f"  → Will try to adjust gripper and release from current position")
     
-    # -------------------------------------------------------------------------- #
-    # Phase 8: Adjust gripper to tilt downward before releasing
-    # -------------------------------------------------------------------------- #
-    print(f"\n--- Phase 8: Adjusting gripper to tilt downward ---")
-    
-    # Get current TCP pose
-    agent = planner.agent1 if robot_idx == 0 else planner.agent2
-    current_tcp_pose = agent.tcp_pose.sp
-    current_tcp_p = current_tcp_pose.p
-    current_tcp_q = current_tcp_pose.q
-    
-    if hasattr(current_tcp_p, 'cpu'):
-        current_tcp_p = current_tcp_p.cpu().numpy()
-    if hasattr(current_tcp_q, 'cpu'):
-        current_tcp_q = current_tcp_q.cpu().numpy()
-    if len(current_tcp_p.shape) > 1:
-        current_tcp_p = current_tcp_p[0]
-    if len(current_tcp_q.shape) > 1:
-        current_tcp_q = current_tcp_q[0]
-    
-    # Check if gripper is already tilted downward
-    # Extract z-axis direction from current orientation (using rotation matrix)
-    from transforms3d.quaternions import quat2mat
-    rot_matrix = quat2mat([current_tcp_q[0], current_tcp_q[1], current_tcp_q[2], current_tcp_q[3]])
-    z_axis = rot_matrix[:, 2]  # z-axis direction (gripper closing direction)
-    
-    # Check if z-axis has significant downward component (z < 0)
-    is_tilted_down = z_axis[2] < -0.3  # If z-component < -0.3, it's tilted down
-    
-    print(f"  Current gripper z-axis direction: [{z_axis[0]:.3f}, {z_axis[1]:.3f}, {z_axis[2]:.3f}]")
-    print(f"  Is tilted downward: {is_tilted_down}")
-    
-    if not is_tilted_down:
-        print(f"  → Tilting gripper downward...")
-        
-        # Use Cartesian space rotation - more robust and universal
-        # Try multiple downward orientations
-        downward_quats = [
-            euler2quat(np.pi * 2/3, 0, 0),    # 120° tilt
-            euler2quat(np.pi * 3/4, 0, 0),    # 135° tilt
-            euler2quat(np.pi * 5/6, 0, 0),    # 150° tilt
-            euler2quat(np.pi / 2, 0, 0),      # 90° tilt
-        ]
-        
-        tilt_success = False
-        for idx, downward_quat in enumerate(downward_quats):
-            tilted_pose = sapien.Pose(current_tcp_p, downward_quat)
-            result_tilt = planner.move_robot_to_pose(robot_idx, tilted_pose, refine_steps=5)
-            
-            if result_tilt != -1:
-                print(f"    ✓ Gripper tilted downward (angle {idx+1}/4)")
-                tilt_success = True
-                break
-        
-        if not tilt_success:
-            print(f"    ⚠ Warning: Failed to tilt gripper with all angles")
-            
-            # Last resort: Try adjusting last joint in joint space
-            current_qpos = planner._get_current_qpos(robot_idx)
-            planner_obj = planner.planner1 if robot_idx == 0 else planner.planner2
-            joint_limits_len = len(planner_obj.joint_vel_limits)
-            current_qpos_trimmed = current_qpos[:joint_limits_len]
-            
-            print(f"    → Trying to adjust last joint (joint {joint_limits_len-1})...")
-            tilted_qpos = current_qpos_trimmed.copy()
-            tilted_qpos[-1] += np.pi / 4  # Rotate last joint by 45°
-            
-            result_tilt = planner_obj.plan_qpos_to_qpos(
-                [tilted_qpos],
-                current_qpos_trimmed,
-                time_step=planner.base_env.control_timestep,
-                use_point_cloud=False,
-                planning_time=5.0,
-            )
-            
-            if result_tilt["status"] == "Success":
-                planner._follow_path(robot_idx, result_tilt, refine_steps=3)
-                print(f"    ✓ Last joint adjusted")
-            else:
-                print(f"    ⚠ Warning: Could not adjust gripper orientation, releasing anyway...")
-    else:
-        print(f"  ✓ Gripper already tilted downward")
     
     # -------------------------------------------------------------------------- #
     # Phase 9: Release cube
@@ -812,7 +673,7 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
     print("\n" + "="*60)
     print("PHASE 1: Opening drawer")
     print("="*60)
-    result = open_drawer(planner, robot_idx=0, drawer_idx=0, open_amount=0.10)
+    result = open_drawer(planner, robot_idx=0, drawer_idx=0, open_amount=0.08)
     if result == -1:
         print("Failed to open drawer")
         planner.close()
@@ -829,45 +690,45 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
     # -------------------------------------------------------------------------- #
     # Phase 2: Robot 2 picks red cube and places in drawer
     # -------------------------------------------------------------------------- #
-    print("\n" + "="*60)
-    print("PHASE 2: Placing cube in drawer")
-    print("="*60)
-    result = pick_and_place_in_drawer(
-        planner, 
-        robot_idx=1, 
-        cube=env_unwrapped.red_cube,
-        env=env_unwrapped
-    )
-    if result == -1:
-        print("Failed to place cube in drawer")
-        # Continue to close drawer anyway
+    # print("\n" + "="*60)
+    # print("PHASE 2: Placing cube in drawer")
+    # print("="*60)
+    # result = pick_and_place_in_drawer(
+    #     planner, 
+    #     robot_idx=1, 
+    #     cube=env_unwrapped.red_cube,
+    #     env=env_unwrapped
+    # )
+    # if result == -1:
+    #     print("Failed to place cube in drawer")
+    #     # Continue to close drawer anyway
     
-    # Wait for cube to settle
-    qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
-    qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-    for _ in range(30):
-        action1 = planner._make_action(qpos1, planner.gripper_state1)
-        action2 = planner._make_action(qpos2, planner.gripper_state2)
-        planner._step_env(action1, action2)
+    # # Wait for cube to settle
+    # qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
+    # qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
+    # for _ in range(30):
+    #     action1 = planner._make_action(qpos1, planner.gripper_state1)
+    #     action2 = planner._make_action(qpos2, planner.gripper_state2)
+    #     planner._step_env(action1, action2)
     
-    # -------------------------------------------------------------------------- #
-    # Phase 3: Robot 1 closes the drawer
-    # -------------------------------------------------------------------------- #
-    print("\n" + "="*60)
-    print("PHASE 3: Closing drawer")
-    print("="*60)
-    result = close_drawer(planner, robot_idx=0, drawer_idx=0)
-    if result == -1:
-        print("Failed to close drawer completely")
-        # Continue anyway
+    # # -------------------------------------------------------------------------- #
+    # # Phase 3: Robot 1 closes the drawer
+    # # -------------------------------------------------------------------------- #
+    # print("\n" + "="*60)
+    # print("PHASE 3: Closing drawer")
+    # print("="*60)
+    # result = close_drawer(planner, robot_idx=0, drawer_idx=0)
+    # if result == -1:
+    #     print("Failed to close drawer completely")
+    #     # Continue anyway
     
-    # Final stabilization
-    qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
-    qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-    for _ in range(20):
-        action1 = planner._make_action(qpos1, planner.gripper_state1)
-        action2 = planner._make_action(qpos2, planner.gripper_state2)
-        last_result = planner._step_env(action1, action2)
+    # # Final stabilization
+    # qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
+    # qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
+    # for _ in range(20):
+    #     action1 = planner._make_action(qpos1, planner.gripper_state1)
+    #     action2 = planner._make_action(qpos2, planner.gripper_state2)
+    #     last_result = planner._step_env(action1, action2)
     
     planner.close()
     
@@ -876,4 +737,4 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
     print("="*60)
     
     # Return the final result
-    return last_result if 'last_result' in locals() else result
+    return result
