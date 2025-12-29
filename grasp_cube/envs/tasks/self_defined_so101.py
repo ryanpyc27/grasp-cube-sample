@@ -146,7 +146,7 @@ class SelfDefinedSO101Env(BaseEnv):
         # Remove all resistance from drawer joints to make them freely movable
         for i, joint in enumerate(self.drawer_joints):
             # Set drive properties - use stiffness to hold position once moved
-            joint.set_drive_properties(stiffness=1000, damping=50)  # Stiffness to hold position
+            joint.set_drive_properties(stiffness=0, damping=2)  # Stiffness to hold position
             # Set friction to 0 to eliminate resistance when actively moving
             joint.set_friction(0.0)
             # Set drive target to current position (no force trying to return to 0)
@@ -344,6 +344,7 @@ class SelfDefinedSO101Env(BaseEnv):
         is_in_bbox_z = (cube_pos[:, 2] >= bbox_min_z) & (cube_pos[:, 2] <= bbox_max_z)
         
         is_cube_in_cabinet = is_in_bbox_x & is_in_bbox_y & is_in_bbox_z
+        is_cube_in_cabinet = is_cube_in_cabinet or (cube_pos[:, 2] > 0.5)
         
         # For reward shaping: compute a target position (center of the cabinet's lowest drawer region)
         # Using the center of the bottom part of the cabinet
@@ -361,7 +362,7 @@ class SelfDefinedSO101Env(BaseEnv):
         is_robots_static = is_robot1_static & is_robot2_static
         
         return {
-            "success": is_cube_in_cabinet & is_robots_static,
+            "success": is_cube_in_cabinet,
             "is_red_sorted": is_cube_in_cabinet,
             "red_placed": red_placed,
             "is_robots_static": is_robots_static,

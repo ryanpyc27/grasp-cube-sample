@@ -354,7 +354,7 @@ def open_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     # Phase 3: Pull drawer open in small increments
     # Pull in small steps to avoid IK failures
     print(f"Pulling drawer open in small steps...")
-    num_pull_steps = 8  # More steps = smaller movements
+    num_pull_steps = 1  # More steps = smaller movements
     step_size = open_amount / num_pull_steps  # Each step is ~0.01m
     
     for step in range(num_pull_steps):
@@ -397,6 +397,20 @@ def open_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
         # AND continuously update drive target to lock drawer position
         qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
         qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
+    
+    # After pulling is complete, lock the drawer at the open position
+    # Increase stiffness and damping to prevent sliding back
+    final_drawer_qpos = env.cabinet.get_qpos()
+    if hasattr(final_drawer_qpos, 'cpu'):
+        final_drawer_qpos = final_drawer_qpos.cpu().numpy()
+    if len(final_drawer_qpos.shape) > 1:
+        final_drawer_qpos = final_drawer_qpos[0]
+    final_drawer_pos = float(final_drawer_qpos[drawer_idx])
+    
+    # Set stiffness to lock position, with moderate damping for stability
+    env.drawer_joints[drawer_idx].set_drive_properties(stiffness=800, damping=80)
+    env.drawer_joints[drawer_idx].set_drive_target(final_drawer_pos)
+    print(f"Drawer locked at position: {final_drawer_pos:.4f} (stiffness=800, damping=80)")
     
     print(f"Robot {robot_idx + 1} successfully opened drawer (holding handle)")
     return 0  # Success
@@ -561,7 +575,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     upright_qpos = np.array([0.025150669738650322,
                             -0.33991164565086365,
                             -0.5317384004592896,
-                            -0.60194976329803467,
+                            -0.30,
                             -1.8569945096969604,
                             0.031005658209323883
                             ])
@@ -599,7 +613,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     # Only rotate joint 0 (base joint) by -45 degrees (clockwise)
     rotated_qpos = current_qpos_trimmed.copy()
-    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 8.0/ 36.0  # -45° = 顺时针
+    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 5.0/ 36.0  # -45° = 顺时针
     
     result_rotate = planner_obj.plan_qpos_to_qpos(
         [rotated_qpos],
@@ -679,7 +693,19 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
         planner.close()
         return -1
     
-    # Wait for drawer to stabilize
+    # Release the handle and move Robot1 away to avoid interference
+    print("Robot 1: Releasing handle and moving away...")
+    planner.open_gripper(robot_idx=0, t=20)  # Open gripper to release handle
+    
+    # Move Robot1 back to a safe position away from the drawer
+    agent1 = planner.agent1
+    current_tcp = agent1.tcp_pose.sp
+    retreat_pose = sapien.Pose(p=current_tcp.p + np.array([0, -0.15, 0.05]), q=current_tcp.q)
+    result = planner.move_robot_to_pose(0, retreat_pose, refine_steps=5)
+    if result == -1:
+        print("Warning: Robot 1 failed to retreat, continuing anyway...")
+    
+    # Stabilize after retreat
     qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
     qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
     for _ in range(20):
@@ -687,29 +713,23 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
         action2 = planner._make_action(qpos2, planner.gripper_state2)
         planner._step_env(action1, action2)
     
+    print("Robot 1 moved away, drawer should remain open")
+    
     # -------------------------------------------------------------------------- #
     # Phase 2: Robot 2 picks red cube and places in drawer
     # -------------------------------------------------------------------------- #
-    # print("\n" + "="*60)
-    # print("PHASE 2: Placing cube in drawer")
-    # print("="*60)
-    # result = pick_and_place_in_drawer(
-    #     planner, 
-    #     robot_idx=1, 
-    #     cube=env_unwrapped.red_cube,
-    #     env=env_unwrapped
-    # )
-    # if result == -1:
-    #     print("Failed to place cube in drawer")
-    #     # Continue to close drawer anyway
-    
-    # # Wait for cube to settle
-    # qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
-    # qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-    # for _ in range(30):
-    #     action1 = planner._make_action(qpos1, planner.gripper_state1)
-    #     action2 = planner._make_action(qpos2, planner.gripper_state2)
-    #     planner._step_env(action1, action2)
+    print("\n" + "="*60)
+    print("PHASE 2: Placing cube in drawer")
+    print("="*60)
+    result = pick_and_place_in_drawer(
+        planner, 
+        robot_idx=1, 
+        cube=env_unwrapped.red_cube,
+        env=env_unwrapped
+    )
+    if result == -1:
+        print("Failed to place cube in drawer")
+        # Continue to close drawer anyway
     
     # # -------------------------------------------------------------------------- #
     # # Phase 3: Robot 1 closes the drawer
