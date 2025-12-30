@@ -250,7 +250,7 @@ def get_drawer_handle_pose(env: SelfDefinedSO101Env, agent: BaseAgent, drawer_id
     # Set handle position very close to current TCP - just move slightly in +y direction
     # Current TCP: [0.301, 0.275, 0.091]
     # Move just 2cm toward cabinet (+y direction)
-    handle_pos = [0.301, 0.360, 0.220]
+    handle_pos = [0.301, 0.360, 0.300]
     
     # Rotate current TCP orientation by 90 degrees
     # Choose which axis to rotate around:
@@ -431,8 +431,8 @@ def close_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int, drawer_idx:
     
     # Push drawer closed in small increments
     print(f"Pushing drawer closed in small steps...")
-    num_push_steps = 4
-    step_size = 0.08 / num_push_steps  # Total push distance 0.08m
+    num_push_steps = 1
+    step_size = 0.18 / num_push_steps  # Total push distance 0.08m
     
     # Get current TCP position
     current_tcp_pose = agent.tcp_pose.sp
@@ -613,7 +613,7 @@ def pick_and_place_in_drawer(planner: DualArmSO101MotionPlanner, robot_idx: int,
     
     # Only rotate joint 0 (base joint) by -45 degrees (clockwise)
     rotated_qpos = current_qpos_trimmed.copy()
-    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 5.0/ 36.0  # -45° = 顺时针
+    rotated_qpos[0] = current_qpos_trimmed[0] + np.pi * 8.0/ 36.0  # -45° = 顺时针
     
     result_rotate = planner_obj.plan_qpos_to_qpos(
         [rotated_qpos],
@@ -687,7 +687,7 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
     print("\n" + "="*60)
     print("PHASE 1: Opening drawer")
     print("="*60)
-    result = open_drawer(planner, robot_idx=0, drawer_idx=0, open_amount=0.08)
+    result = open_drawer(planner, robot_idx=0, drawer_idx=0, open_amount=0.18)
     if result == -1:
         print("Failed to open drawer")
         planner.close()
@@ -734,21 +734,21 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
     # # -------------------------------------------------------------------------- #
     # # Phase 3: Robot 1 closes the drawer
     # # -------------------------------------------------------------------------- #
-    # print("\n" + "="*60)
-    # print("PHASE 3: Closing drawer")
-    # print("="*60)
-    # result = close_drawer(planner, robot_idx=0, drawer_idx=0)
-    # if result == -1:
-    #     print("Failed to close drawer completely")
-    #     # Continue anyway
+    print("\n" + "="*60)
+    print("PHASE 3: Closing drawer")
+    print("="*60)
+    result = close_drawer(planner, robot_idx=0, drawer_idx=0)
+    if result == -1:
+        print("Failed to close drawer completely")
+        # Continue anyway
     
-    # # Final stabilization
-    # qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
-    # qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
-    # for _ in range(20):
-    #     action1 = planner._make_action(qpos1, planner.gripper_state1)
-    #     action2 = planner._make_action(qpos2, planner.gripper_state2)
-    #     last_result = planner._step_env(action1, action2)
+    # Final stabilization
+    qpos1 = planner._get_current_qpos(0)[:len(planner.planner1.joint_vel_limits)]
+    qpos2 = planner._get_current_qpos(1)[:len(planner.planner2.joint_vel_limits)]
+    for _ in range(20):
+        action1 = planner._make_action(qpos1, planner.gripper_state1)
+        action2 = planner._make_action(qpos2, planner.gripper_state2)
+        last_result = planner._step_env(action1, action2)
     
     planner.close()
     
@@ -757,4 +757,4 @@ def solve(env: SelfDefinedSO101Env, seed=None, debug=False, vis=False):
     print("="*60)
     
     # Return the final result
-    return result
+    return last_result

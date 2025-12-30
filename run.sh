@@ -12,10 +12,9 @@ CUDA_VISIBLE_DEVICES=1 python -m grasp_cube.motionplanning.so101.run \
     --only-count-success
 
 CUDA_VISIBLE_DEVICES=2 python -m grasp_cube.motionplanning.so101.run \
-    -n 1 \
+    -n 100 \
     -e SelfDefinedSO101-v1 \
     --obs-mode sensor_data \
-    --save-video \
     --only-count-success
 
 python convert_so101_to_lerobot.py \

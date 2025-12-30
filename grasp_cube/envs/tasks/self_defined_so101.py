@@ -41,18 +41,18 @@ class SelfDefinedSO101Env(BaseEnv):
     ]
     cube_half_size = 0.015
     goal_thresh = 0.015 * 1.25
-    cube_spawn_half_size = (0.000, 0.000)
-    cube_spawn_center = (0.100, 0.25)
-    sensor_cam_eye_pos = [0.316, 0.260, 0.407 + 0.01]
-    sensor_cam_target_pos = [0.316, 0.260, 0.01]
+    cube_spawn_half_size = (0.040, 0.060)
+    cube_spawn_center = (0.050, 0.25)
+    sensor_cam_eye_pos = [0.206, 0.260, 0.407 + 0.01]
+    sensor_cam_target_pos = [0.206, 0.260, 0.01]
     human_cam_eye_pos = [-0.3, -0.6, 0.6]
     human_cam_target_pos = [0.3, 0.3, 0.0]
     max_goal_height = 0.10
     lock_z = True
     target_region_half_size = (0.083, 0.082)
     red_cube_target_region_center = (0.121, 0.25)
-    robot1_position = [0.300, 0.040, 0.01]
-    robot2_position = [0.100, 0.040, 0.01]
+    robot1_position = [0.300, 0.000, 0.01]
+    robot2_position = [0.050, 0.040, 0.01]
 
     def __init__(self, *args, robot_uids=("so101", "so101"), robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -313,9 +313,9 @@ class SelfDefinedSO101Env(BaseEnv):
         # Define cabinet bounding box based on the model
         # From bounding_box.json: min: [-0.455902, -0.801925, -0.540979], max: [0.444886, 0.67794, 0.579644]
         # After scaling by 0.2 and considering the cabinet pose
-        scale = 0.2
-        cabinet_bbox_min_local = torch.tensor([-0.455902, -0.801925, -0.540979], device=self.device) * scale
-        cabinet_bbox_max_local = torch.tensor([0.444886, 0.67794, 0.579644], device=self.device) * scale
+        scale = 0.3
+        cabinet_bbox_min_local = torch.tensor([-0.514147, -0.79634, -0.411825], device=self.device) * scale
+        cabinet_bbox_max_local = torch.tensor([0.495505, 0.655034, 0.445384], device=self.device) * scale
         
         # Transform to world coordinates
         # Since the cabinet is rotated 90° around z-axis, we need to rotate the bounding box
@@ -333,8 +333,8 @@ class SelfDefinedSO101Env(BaseEnv):
         # After 90° rotation around z-axis: swap x and y, negate new x
         bbox_min_x = cabinet_pos[:, 0] + cabinet_bbox_min_local[1] * scale  # -y becomes x
         bbox_max_x = cabinet_pos[:, 0] + cabinet_bbox_max_local[1] * scale
-        bbox_min_y = cabinet_pos[:, 1] - cabinet_bbox_max_local[0] * scale  # -x becomes y
-        bbox_max_y = cabinet_pos[:, 1] - cabinet_bbox_min_local[0] * scale
+        bbox_min_y = cabinet_pos[:, 1] + cabinet_bbox_max_local[0] * scale  # -x becomes y
+        bbox_max_y = cabinet_pos[:, 1] + cabinet_bbox_min_local[0] * scale
         bbox_min_z = cabinet_pos[:, 2] + cabinet_bbox_min_local[2] * scale
         bbox_max_z = cabinet_pos[:, 2] + cabinet_bbox_max_local[2] * scale
         
@@ -344,7 +344,14 @@ class SelfDefinedSO101Env(BaseEnv):
         is_in_bbox_z = (cube_pos[:, 2] >= bbox_min_z) & (cube_pos[:, 2] <= bbox_max_z)
         
         is_cube_in_cabinet = is_in_bbox_x & is_in_bbox_y & is_in_bbox_z
-        is_cube_in_cabinet = is_cube_in_cabinet or (cube_pos[:, 2] > 0.5)
+        # print(f"is_cube_in_cabinet: {is_cube_in_cabinet}")
+        # print(f"cube_pos: {cube_pos}")
+        # print(f"bbox_min_x: {bbox_min_x}, bbox_max_x: {bbox_max_x}")
+        # print(f"bbox_min_y: {bbox_min_y}, bbox_max_y: {bbox_max_y}")
+        # print(f"bbox_min_z: {bbox_min_z}, bbox_max_z: {bbox_max_z}")
+        # print(f"cube_pos[:, 2]: {cube_pos[:, 2]}")
+        # print(f"cube_pos[:, 2] > 0.25: {cube_pos[:, 2] > 0.25}")
+        is_cube_in_cabinet = is_cube_in_cabinet | (cube_pos[:, 2] > 0.25)
         
         # For reward shaping: compute a target position (center of the cabinet's lowest drawer region)
         # Using the center of the bottom part of the cabinet
