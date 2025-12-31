@@ -25,8 +25,8 @@ class LeRobotEnvConfig:
     camera_config_path: pathlib.Path
     teleop: so101_leader.SO101LeaderConfig | bi_so101_leader.BiSO101LeaderConfig | None = None
     task: str = ""
-    dry_run: bool = True
-    episode_time_s: float = 60.0
+    dry_run: bool = False
+    episode_time_s: float = 600.0
     fps: int = 30
     
     def __post_init__(self):
@@ -46,7 +46,6 @@ class LeRobotEnv(gym.Env):
         self.teleop_action_processor = teleop_action_processor
         self.robot_action_processor = robot_action_processor
         self.robot_observation_processor = robot_observation_processor
-        
         self.robot.connect()
         if self.teleop is not None:
             self.teleop.connect()
@@ -60,14 +59,14 @@ class LeRobotEnv(gym.Env):
         self.observation_space = gym.spaces.Dict({
             "states": gym.spaces.Dict({
                 "arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
-            }) if self.robot.robot_type == "so101" else gym.spaces.Dict({
+            }) if self.robot.robot_type == "so101_follower" else gym.spaces.Dict({
                 "left_arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
                 "right_arm": gym.spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
             }),
             "images": gym.spaces.Dict({
                 "front": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
-            }) if self.robot.robot_type == "so101" else gym.spaces.Dict({
+            }) if self.robot.robot_type == "so101_follower" else gym.spaces.Dict({
                 "front": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "left_wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "right_wrist": gym.spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
