@@ -125,15 +125,10 @@ class SelfDefinedSO101Env(BaseEnv):
         cabinet_rotation = euler2quat(0, 0, np.pi / 2.0)
         # Set a temporary pose to compute bounding box
         self.cabinet.set_pose(sapien.Pose(p=[0.3, 0.3, 0.5], q=cabinet_rotation))
-        
-        # Check if cabinet has movable joints (drawers)
-        print(f"\n=== Cabinet Joints Info ===")
         all_joints = self.cabinet.get_active_joints()
-        print(f"Number of joints: {len(all_joints)}")
         for i, joint in enumerate(all_joints):
             joint_type = joint.type if isinstance(joint.type, str) else joint.type[0] if len(joint.type) > 0 else 'unknown'
             limits = joint.get_limits()
-            print(f"Joint {i}: {joint.name}, type: {joint_type}, limits: {limits}")
         
         # Store drawer joints for later use (prismatic joints are sliding drawers)
         self.drawer_joints = []
@@ -141,7 +136,6 @@ class SelfDefinedSO101Env(BaseEnv):
             joint_type = joint.type if isinstance(joint.type, str) else joint.type[0] if len(joint.type) > 0 else None
             if joint_type in ['prismatic', 'revolute']:
                 self.drawer_joints.append(joint)
-        print(f"Found {len(self.drawer_joints)} movable drawer joints")
         
         # Remove all resistance from drawer joints to make them freely movable
         for i, joint in enumerate(self.drawer_joints):
@@ -152,7 +146,6 @@ class SelfDefinedSO101Env(BaseEnv):
             # Set drive target to current position (no force trying to return to 0)
             joint.set_drive_target(0)
             joint.set_drive_velocity_target(0)
-            print(f"Set drawer joint {i} properties: stiffness=1000, damping=50, friction=0")
         
         # Place cabinet on table
         # The cabinet's URDF origin is not at its bottom, so we need to add an offset
@@ -166,11 +159,6 @@ class SelfDefinedSO101Env(BaseEnv):
         desired_cabinet_x = 0.3
         desired_cabinet_y = 0.47
         desired_cabinet_z = table_height + cabinet_z_offset
-        
-        print(f"\n=== Cabinet Placement ===")
-        print(f"Position: x={desired_cabinet_x:.3f}, y={desired_cabinet_y:.3f}, z={desired_cabinet_z:.3f}")
-        print(f"Rotation: 90° clockwise around z-axis")
-        print(f"Scale: {loader.scale}")
         
         # Store the properly adjusted pose for later use
         self.cabinet_base_pose = sapien.Pose(

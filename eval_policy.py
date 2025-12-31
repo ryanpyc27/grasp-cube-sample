@@ -14,7 +14,7 @@ import grasp_cube.envs.tasks.sort_cube_so101
 import grasp_cube.envs.tasks.self_defined_so101
 
 # Import LeRobot policy
-from grasp_cube.real.act_policy import LeRobotACTPolicy, LeRobotACTPolicyConfig
+from grasp_cube.real.act_policy import LeRobotACTPolicy, LeRobotACTPolicyConfig, LeRobotCustomACTPolicy
 
 
 class ManiSkillEnvWrapper:
@@ -233,6 +233,7 @@ class Args:
     video_dir: Path = Path("eval_videos")
     fps: int = 10
     shader_pack: str = "default"  # Shader pack for rendering (default, rt, rt_fast, etc.)
+    policy_type: str = "act"
 
 
 def main(args: Args):
@@ -261,7 +262,12 @@ def main(args: Args):
     env = ManiSkillEnvWrapper(args.env_id, robot_type=args.policy.robot_type, shader_pack=args.shader_pack)
     
     # Create policy
-    policy = LeRobotACTPolicy(args.policy)
+    if args.policy_type == "act":
+        policy = LeRobotACTPolicy(args.policy)
+    elif args.policy_type == "custom_act":
+        policy = LeRobotCustomACTPolicy(args.policy)
+    else:
+        raise ValueError(f"Invalid policy type: {args.policy_type}")
     
     # Evaluation loop
     successes = []

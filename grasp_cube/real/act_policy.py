@@ -8,6 +8,8 @@ from lerobot.policies.act.configuration_act import ACTConfig, PreTrainedConfig
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.policies.factory import make_pre_post_processors
+from lerobot.policies.custom_act.configuration_custom_act import CustomACTConfig
+from lerobot.policies.custom_act.modeling_custom_act import CustomACTPolicy
 
 @dataclasses.dataclass
 class LeRobotACTPolicyConfig:
@@ -61,7 +63,57 @@ class LeRobotACTPolicy:
         return action_chunk[:self.act_steps, 0].numpy()
     
     def reset(self):
-        print("Resetting LeRobotACTPolicy")
+        # print("Resetting LeRobotACTPolicy")
+        self.policy.reset()
+        self.preprocessor.reset()
+        self.postprocessor.reset()
+
+class LeRobotCustomACTPolicy:
+    def __init__(self, config: LeRobotACTPolicyConfig):
+        policy_config = PreTrainedConfig.from_pretrained(config.path)
+        assert isinstance(policy_config, CustomACTConfig), f"Expected CustomACTConfig, got {type(policy_config)}"
+        policy = CustomACTPolicy.from_pretrained(config.path, config=policy_config)
+        self.policy = policy
+        self.robot_type = config.robot_type
+        self.device = torch.device(config.device)
+        self.policy.to(self.device)
+        self.policy.eval()
+
+        preprocessor, postprocessor = make_pre_post_processors(
+            policy_cfg=policy_config,
+            pretrained_path=str(config.path),
+            preprocessor_overrides={
+                "device_processor": {"device": config.device},
+            },
+        )
+        self.preprocessor = preprocessor
+        self.postprocessor = postprocessor
+        self.act_steps = config.act_steps
+
+    def get_action(self, observation: dict[str, Any]) -> np.ndarray:
+        obs = {}
+        if self.robot_type == "so101":
+            obs["observation.state"] = observation["states"]["arm"]
+            obs["observation.images.image"] = observation["images"]["front"]
+            obs["observation.images.wrist_image"] = observation["images"]["wrist"]
+        elif self.robot_type == "bi_so101":
+            obs["observation.state"] = np.concatenate([
+                observation["states"]["right_arm"],
+                observation["states"]["left_arm"],
+            ], axis=-1)
+            # Use the same key names as training data
+            obs["observation.images.image"] = observation["images"]["front"]
+            obs["observation.images.wrist_image_1"] = observation["images"]["right_wrist"]
+            obs["observation.images.wrist_image_2"] = observation["images"]["left_wrist"]
+        obs_infer = prepare_observation_for_inference(obs, self.device, observation["task"], self.robot_type)
+        obs_infer_processed = self.preprocessor(obs_infer)
+        action_chunk = self.policy.predict_action_chunk(obs_infer_processed).swapaxes(0, 1).cpu()
+        for i in range(len(action_chunk)):
+            action_chunk[i] = self.postprocessor(action_chunk[i])
+        return action_chunk[:self.act_steps, 0].numpy()
+    
+    def reset(self):
+        # print("Resetting LeRobotCustomACTPolicy")
         self.policy.reset()
         self.preprocessor.reset()
         self.postprocessor.reset()
