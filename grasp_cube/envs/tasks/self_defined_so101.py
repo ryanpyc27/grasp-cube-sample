@@ -19,7 +19,7 @@ from grasp_cube.agents.robots.so101.so_101 import SO101
 from grasp_cube.envs.tasks.table import MyTableBuilder
 
 
-@register_env("SelfDefinedSO101-v1", max_episode_steps=200)
+@register_env("SelfDefinedSO101-v1", max_episode_steps=1000)
 class SelfDefinedSO101Env(BaseEnv):
     """
     **Task Description:**

@@ -24,7 +24,7 @@ python convert_biso101_to_lerobot.py \
     --h5-path /dataset/grasp-cube/demos/SortCubeSO101-v1/motionplanning/20251223_062120.h5
 
 python convert_biso101_to_lerobot.py \
-    --h5-path /homes/yichengp/grasp-cube-sample/outputs/demos/SelfDefinedSO101-v1/motionplanning/20251229_112544.h5
+    --h5-path /homes/yichengp/grasp-cube-sample/outputs/demos/SelfDefinedSO101-v1/motionplanning/20251230_024335.h5
 
 python upload_dataset_to_hf.py \
     --repo-id sort_cube \
@@ -33,7 +33,7 @@ python upload_dataset_to_hf.py \
 
 python upload_dataset_to_hf.py \
     --repo-id self_defined \
-    --root /homes/yichengp/.cache/huggingface/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
+    --root /dataset/grasp-cube/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
     --hf-repo-id RyanPan315464/self_defined_biso101
 
 HF_HUB_OFFLINE=0 lerobot-train \
@@ -56,6 +56,28 @@ HF_HUB_OFFLINE=0 CUDA_VISIBLE_DEVICES=0 lerobot-train \
     --output_dir=/homes/yichengp/grasp-cube-sample/log/sort_cube_200samples_200ksteps \
     --dataset.revision=main \
     --steps=200000
+
+HF_HUB_OFFLINE=0 CUDA_VISIBLE_DEVICES=0 lerobot-train \
+    --dataset.root=/dataset/grasp-cube/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
+    --dataset.repo_id=self_defined \
+    --policy.type=act \
+    --policy.push_to_hub=false \
+    --wandb.enable=true \
+    --wandb.project=pick_cubes_act \
+    --output_dir=/homes/yichengp/grasp-cube-sample/log/self_defined_100ksteps \
+    --dataset.revision=main \
+    --steps=100000
+
+HF_HUB_OFFLINE=0 CUDA_VISIBLE_DEVICES=0 lerobot-train \
+    --dataset.root=/dataset/grasp-cube/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
+    --dataset.repo_id=self_defined \
+    --policy.type=custom_act \
+    --policy.push_to_hub=false \
+    --wandb.enable=true \
+    --wandb.project=pick_cubes_act \
+    --output_dir=/homes/yichengp/grasp-cube-sample/log/self_defined_100ksteps_custom \
+    --dataset.revision=main \
+    --steps=100000
 
 
     
@@ -81,4 +103,12 @@ python eval_policy.py \
     --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SortCubeSO101-v1 \
+    --num-episodes 100
+
+python eval_policy.py \
+    --policy.path log/self_defined_100ksteps/checkpoints/last/pretrained_model \
+    --policy.robot-type bi_so101 \
+    --policy.act-steps 16 \
+    --policy.device cuda:0 \
+    --env-id SelfDefinedSO101-v1 \
     --num-episodes 100

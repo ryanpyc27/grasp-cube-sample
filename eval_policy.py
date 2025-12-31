@@ -11,6 +11,7 @@ from datetime import datetime
 # Import custom environments
 import grasp_cube.envs.tasks.stack_cube_so101
 import grasp_cube.envs.tasks.sort_cube_so101
+import grasp_cube.envs.tasks.self_defined_so101
 
 # Import LeRobot policy
 from grasp_cube.real.act_policy import LeRobotACTPolicy, LeRobotACTPolicyConfig
