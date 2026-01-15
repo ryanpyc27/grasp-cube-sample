@@ -2,13 +2,13 @@ defaults:
     - override hydra/launcher: submitit_local
 
 # environment
-env_id: StackCubeSO101-v1
+env_id: LiftCubeSO101-v1
 obs: rgb # or rgb
-control_mode: default # or pd_joint_delta_pos or pd_ee_delta_pose
+control_mode: pd_joint_delta_pos # or pd_joint_delta_pos or pd_joint_pos
 num_envs: 32
 num_eval_envs: 4
 env_type: gpu # cpu
-include_state: true # for rgb mode, if we want to use extra state data like qpos, goal position, etc.
+include_state: false # for rgb mode, if we want to use extra state data like qpos, goal position, etc.
 render_mode: rgb_array # ['rgb_array' for quality, or 'sensors' for speed]
 render_size: 64
 setting_tag: none # ['none', 'walltime_efficient', 'sample_efficient', ...] for wandb tags
@@ -77,7 +77,7 @@ simnorm_dim: 8
 # logging
 wandb_project: EAI-project
 wandb_group: rl-test
-wandb_name: tdmpc2-StackCubeSO101-rgb
+wandb_name: tdmpc2-LiftCubeSO101-rgb
 wandb_entity: panyc23-tsinghua-university
 wandb_silent: false
 wandb: true # enable wandb

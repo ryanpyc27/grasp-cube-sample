@@ -18,7 +18,7 @@ from grasp_cube.agents.robots.so101.so_101 import SO101
 from grasp_cube.envs.tasks.table import MyTableBuilder
 
 
-@register_env("LiftCubeSO101-v1", max_episode_steps=50)
+@register_env("LiftCubeSO101-v1", max_episode_steps=500)
 class LiftCubeSO101Env(BaseEnv):
     """
     **Task Description:**
@@ -56,10 +56,27 @@ class LiftCubeSO101Env(BaseEnv):
 
     @property
     def _default_sensor_configs(self):
+        # When camera looks straight down, we need to specify the 'up' vector
+        # to avoid ambiguous camera orientation. Use -Y as up so the image is aligned.
         pose = sapien_utils.look_at(
-            eye=self.sensor_cam_eye_pos, target=self.sensor_cam_target_pos
+            eye=self.sensor_cam_eye_pos, 
+            target=self.sensor_cam_target_pos,
+            # up=[0, -1, 0]
         )
-        return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
+        # Add both base camera and wrist camera
+        return [
+            CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100),
+            CameraConfig(
+                "wrist_camera",
+                sapien.Pose(),  # The pose is relative to the mount link
+                128,
+                128,
+                np.pi / 2,
+                0.01,
+                100,
+                mount=self.agent.robot.links_map["camera_link"],
+            ),
+        ]
 
     @property
     def _default_human_render_camera_configs(self):
@@ -94,20 +111,21 @@ class LiftCubeSO101Env(BaseEnv):
             name="cube",
             initial_pose=sapien.Pose(p=[0, 0, self.cube_half_size]),
         )
-        self.goal_site = actors.build_sphere(
-            self.scene,
-            radius=self.goal_thresh,
-            color=[0, 1, 0, 1],
-            name="goal_site",
-            body_type="kinematic",
-            add_collision=False,
-            initial_pose=sapien.Pose(),
-        )
-        self._hidden_objects.append(self.goal_site)
+        # self.goal_site = actors.build_sphere(
+        #     self.scene,
+        #     radius=self.goal_thresh,
+        #     color=[0, 1, 0, 1],
+        #     name="goal_site",
+        #     body_type="kinematic",
+        #     add_collision=False,
+        #     initial_pose=sapien.Pose(),
+        # )
+        # self._hidden_objects.append(self.goal_site)
         
     def initialize_agent(self, env_idx: torch.Tensor):
         b = len(env_idx)
-        qpos = np.array([-np.pi / 2, 0, 0, np.pi / 2, 0, 0])
+        qpos = np.array([0, 0, 0, np.pi / 2, 0, 0])
+        q_rotation = [0.7071068, 0, 0, 0.7071068]  # quaternion for 90 degree rotation around z
         qpos = (
             self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, (b, len(qpos))
@@ -116,7 +134,7 @@ class LiftCubeSO101Env(BaseEnv):
         )
         self.agent.reset(qpos)
         self.agent.robot.set_pose(
-            sapien.Pose([0.481, 0.003, 0])
+            sapien.Pose([0.481, 0.04, 0], q=q_rotation)
         )
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
@@ -139,20 +157,20 @@ class LiftCubeSO101Env(BaseEnv):
 
             goal_xyz = xyz
             goal_xyz[:, 2] += 0.06
-            self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
+            # self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
 
     def _get_obs_extra(self, info: Dict):
         # in reality some people hack is_grasped into observations by checking if the gripper can close fully or not
         obs = dict(
             is_grasped=info["is_grasped"],
             tcp_pose=self.agent.tcp_pose.raw_pose,
-            goal_pos=self.goal_site.pose.p,
+            # goal_pos=self.goal_site.pose.p,
         )
         if "state" in self.obs_mode:
             obs.update(
                 obj_pose=self.cube.pose.raw_pose,
                 tcp_to_obj_pos=self.cube.pose.p - self.agent.tcp_pose.p,
-                obj_to_goal_pos=self.goal_site.pose.p - self.cube.pose.p,
+                # obj_to_goal_pos=self.goal_site.pose.p - self.cube.pose.p,
             )
         return obs
 
@@ -184,11 +202,11 @@ class LiftCubeSO101Env(BaseEnv):
         lift_reward = torch.clamp(cube_height / 0.05, 0, 1)
         reward += lift_reward * is_grasped * 2
         
-        obj_to_goal_dist = torch.linalg.norm(
-            self.goal_site.pose.p - self.cube.pose.p, axis=1
-        )
-        place_reward = 1 - torch.tanh(10 * obj_to_goal_dist)
-        reward += place_reward * info["is_high_enough"]
+        # obj_to_goal_dist = torch.linalg.norm(
+        #     self.goal_site.pose.p - self.cube.pose.p, axis=1
+        # )
+        # place_reward = 1 - torch.tanh(10 * obj_to_goal_dist)
+        # reward += place_reward * info["is_high_enough"]
         
         qvel = self.agent.robot.get_qvel()
         qvel = qvel[..., :-1]

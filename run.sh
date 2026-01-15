@@ -1,5 +1,11 @@
-CUDA_VISIBLE_DEVICES=0 python -m grasp_cube.motionplanning.so101.run \
-    -n 200 \
+CUDA_VISIBLE_DEVICES=1 python -m grasp_cube.motionplanning.so101.run \
+    -n 100 \
+    -e LiftCubeSO101-v1 \
+    --obs-mode sensor_data \
+    --only-count-success
+
+CUDA_VISIBLE_DEVICES=1 python -m grasp_cube.motionplanning.so101.run \
+    -n 1 \
     -e StackCubeSO101-v1 \
     --obs-mode sensor_data \
     --only-count-success \
@@ -16,6 +22,9 @@ CUDA_VISIBLE_DEVICES=2 python -m grasp_cube.motionplanning.so101.run \
     -e SelfDefinedSO101-v1 \
     --obs-mode sensor_data \
     --only-count-success
+
+CUDA_VISIBLE_DEVICES=0 python convert_so101_to_lerobot.py \
+    --h5-path /homes/yichengp/grasp-cube-sample/outputs/demos/LiftCubeSO101-v1/motionplanning/20260115_030255.h5
 
 python convert_so101_to_lerobot.py \
     --h5-path /dataset/grasp-cube/demos/StackCubeSO101-v1/motionplanning/20251223_092041.h5
@@ -35,6 +44,16 @@ python upload_dataset_to_hf.py \
     --repo-id self_defined \
     --root /dataset/grasp-cube/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
     --hf-repo-id RyanPan315464/self_defined_biso101
+
+HF_HUB_OFFLINE=0 CUDA_VISIBLE_DEVICES=0 lerobot-train \
+    --dataset.root=/dataset/grasp-cube/lerobot \
+    --dataset.repo_id=lift_cube \
+    --policy.type=act \
+    --policy.push_to_hub=false \
+    --wandb.enable=true \
+    --wandb.project=pick_cubes_act \
+    --output_dir=/homes/yichengp/grasp-cube-sample/log/lift_cube_100samples \
+    --dataset.revision=main
 
 HF_HUB_OFFLINE=0 lerobot-train \
     --dataset.root=/dataset/grasp-cube/lerobot/stack_cube-StackCubeSO101-v1-pd_joint_pos-sensor_data-default \
@@ -87,6 +106,14 @@ python train.py env_id=StackCubeSO101-v1
 
 # Evaluate single-arm (so101) policy on StackCube task
 # Note: act_steps defaults to 16, so we use replan-steps 16 or None to use all predicted actions
+CUDA_VISIBLE_DEVICES=0 python eval_policy.py \
+    --policy.path log/lift_cube_100samples/checkpoints/last/pretrained_model \
+    --policy.robot-type so101 \
+    --policy.act-steps 16 \
+    --policy.device cuda:0 \
+    --env-id LiftCubeSO101-v1 \
+    --num-episodes 100
+
 python eval_policy.py \
     --policy.path log/stack_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type so101 \
@@ -106,7 +133,7 @@ python eval_policy.py \
     --num-episodes 100
 
 python eval_policy.py \
-    --policy.path log/self_defined_100ksteps/checkpoints/last/pretrained_model \
+    --policy.path log/self_defined_100ksteps/checkpoints/080000/pretrained_model \
     --policy.robot-type bi_so101 \
     --policy.act-steps 16 \
     --policy.device cuda:0 \
@@ -114,10 +141,29 @@ python eval_policy.py \
     --num-episodes 100
 
 python eval_policy.py \
-    --policy.path log/self_defined_100ksteps_custom/checkpoints/last/pretrained_model \
+    --policy.path log/self_defined_100ksteps_custom/checkpoints/080000/pretrained_model \
     --policy.robot-type bi_so101 \
     --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SelfDefinedSO101-v1 \
     --num-episodes 100 \
     --policy-type custom_act
+
+
+
+# Real Robot Training
+HF_HUB_OFFLINE=0 accelerate launch \
+    --multi_gpu \
+    --num_processes=8 \
+    $(which lerobot-train) \
+    --dataset.root=/dataset/grasp-cube/eai/sort/ \
+    --dataset.repo_id=sort_cube \
+    --policy.type=act \
+    --policy.chunk_size=200 \
+    --policy.n_action_steps=50 \
+    --policy.push_to_hub=false \
+    --wandb.enable=true \
+    --wandb.project=pick_cubes_act \
+    --output_dir=/homes/yichengp/grasp-cube-sample/log/sort_cube_200chunk \
+    --dataset.revision=main \
+    --steps=100000

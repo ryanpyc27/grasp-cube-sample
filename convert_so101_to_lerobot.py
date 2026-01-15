@@ -12,8 +12,9 @@ import tyro
 import math
 import mani_skill
 import grasp_cube.envs.tasks.stack_cube_so101
+import grasp_cube.envs.tasks.lift_cube_so101
 
-REPO_NAME = "stack_cube"
+REPO_NAME = "lift_cube"
 
 def main(h5_path: Path, *, push_to_hub: bool = False):
     json_path = h5_path.with_suffix('.json')
