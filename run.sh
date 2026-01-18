@@ -88,13 +88,13 @@ HF_HUB_OFFLINE=0 CUDA_VISIBLE_DEVICES=0 lerobot-train \
     --steps=100000
 
 HF_HUB_OFFLINE=0 CUDA_VISIBLE_DEVICES=0 lerobot-train \
-    --dataset.root=/dataset/grasp-cube/lerobot/self_defined-SelfDefinedSO101-v1-pd_joint_pos-sensor_data-default \
-    --dataset.repo_id=self_defined \
+    --dataset.repo_id=RyanPan315464/self_defined_biso101 \
     --policy.type=custom_act \
+    --policy.vision_encoder=vit \
     --policy.push_to_hub=false \
     --wandb.enable=true \
     --wandb.project=pick_cubes_act \
-    --output_dir=/homes/yichengp/grasp-cube-sample/log/self_defined_100ksteps_custom \
+    --output_dir=/homes/yichengp/grasp-cube-sample/log/self_defined_100ksteps_custom_vit \
     --dataset.revision=main \
     --steps=100000
 
@@ -133,7 +133,7 @@ python eval_policy.py \
     --num-episodes 100
 
 python eval_policy.py \
-    --policy.path log/self_defined_100ksteps/checkpoints/080000/pretrained_model \
+    --policy.path log/self_defined_100ksteps/checkpoints/040000/pretrained_model \
     --policy.robot-type bi_so101 \
     --policy.act-steps 16 \
     --policy.device cuda:0 \
@@ -141,12 +141,22 @@ python eval_policy.py \
     --num-episodes 100
 
 python eval_policy.py \
-    --policy.path log/self_defined_100ksteps_custom/checkpoints/080000/pretrained_model \
+    --policy.path log/self_defined_100ksteps_custom/checkpoints/040000/pretrained_model \
     --policy.robot-type bi_so101 \
     --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SelfDefinedSO101-v1 \
     --num-episodes 100 \
+    --policy-type custom_act
+
+python eval_policy.py \
+    --policy.path log/self_defined_100ksteps_custom_vit/checkpoints/060000/pretrained_model \
+    --policy.robot-type bi_so101 \
+    --policy.act-steps 16 \
+    --policy.device cuda:0 \
+    --env-id SelfDefinedSO101-v1 \
+    --num-episodes 5 \
+    --save-video \
     --policy-type custom_act
 
 

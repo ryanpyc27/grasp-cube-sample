@@ -7,6 +7,7 @@ from pathlib import Path
 import tyro
 import imageio
 from datetime import datetime
+import json
 
 # Import custom environments
 import grasp_cube.envs.tasks.lift_cube_so101
@@ -354,6 +355,20 @@ def main(args: Args):
     print(f"Successes: {sum(successes)}/{args.num_episodes}")
     print(f"=" * 60)
 
+    output_json = "eval_results.json"
+    try:
+        with open(output_json, "r") as f:
+            results = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        results = []
+    results.append(
+        {
+            "env_id": args.env_id,
+            "success_rate": success_rate,
+        }
+    )
+    with open(output_json, "w") as f:
+        json.dump(results, f, indent=4)
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
@@ -366,19 +381,19 @@ Usage examples:
 python eval_policy.py \
     --policy.path log/stack_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type so101 \
-    --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id StackCubeSO101-v1 \
-    --num-episodes 100
+    --num-episodes 100 \
+    --replan-steps 32
 
 # Dual-arm robot (bi_so101) - SortCube task
 CUDA_VISIBLE_DEVICES=0 python eval_policy.py \
     --policy.path log/sort_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type bi_so101 \
-    --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SortCubeSO101-v1 \
     --num-episodes 100 \
+    --replan-steps 64
     --save-video
 
 # Note: 

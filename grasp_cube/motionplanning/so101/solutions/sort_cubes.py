@@ -263,35 +263,8 @@ def pick_and_place(planner: DualArmSO101MotionPlanner, robot_idx: int,
     """
     agent = planner.agent1 if robot_idx == 0 else planner.agent2
     robot = agent.robot
+
     
-    # Debug: Print positions (convert tensors to numpy for formatting)
-    cube_pos = cube.pose.sp.p
-    robot_base_pos = robot.pose.p
-    tcp_pos = agent.tcp_pose.sp.p
-    
-    # Convert to numpy/list for printing
-    if hasattr(robot_base_pos, 'cpu'):
-        robot_base_pos = robot_base_pos.cpu().numpy()[0]
-    if hasattr(tcp_pos, 'cpu'):
-        tcp_pos = tcp_pos.cpu().numpy()[0] if len(tcp_pos.shape) > 1 else tcp_pos.cpu().numpy()
-    if hasattr(cube_pos, 'cpu'):
-        cube_pos = cube_pos.cpu().numpy()[0] if len(cube_pos.shape) > 1 else cube_pos.cpu().numpy()
-        
-    # print(f"\nRobot {robot_idx + 1} Debug Info:")
-    # print(f"  - Robot base: [{robot_base_pos[0]:.3f}, {robot_base_pos[1]:.3f}, {robot_base_pos[2]:.3f}]")
-    # print(f"  - Current TCP: [{tcp_pos[0]:.3f}, {tcp_pos[1]:.3f}, {tcp_pos[2]:.3f}]")
-    # print(f"  - Cube position: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
-    # print(f"  - Target position: [{target_pos[0]:.3f}, {target_pos[1]:.3f}, {target_pos[2]:.3f}]")
-    
-    # Calculate distances
-    distance_to_cube = np.sqrt((cube_pos[0] - robot_base_pos[0])**2 + 
-                               (cube_pos[1] - robot_base_pos[1])**2 + 
-                               (cube_pos[2] - robot_base_pos[2])**2)
-    distance_tcp_to_cube = np.sqrt((cube_pos[0] - tcp_pos[0])**2 + 
-                                   (cube_pos[1] - tcp_pos[1])**2 + 
-                                   (cube_pos[2] - tcp_pos[2])**2)
-    # print(f"  - Distance (base to cube): {distance_to_cube:.3f}m")
-    # print(f"  - Distance (TCP to cube): {distance_tcp_to_cube:.3f}m")
     
     # Compute grasp pose for the cube
     grasp_pose = compute_grasp_pose(env, cube, agent)

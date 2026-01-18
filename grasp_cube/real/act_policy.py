@@ -113,7 +113,10 @@ class LeRobotCustomACTPolicy:
         action_chunk = self.policy.predict_action_chunk(obs_infer_processed).swapaxes(0, 1).cpu()
         for i in range(len(action_chunk)):
             action_chunk[i] = self.postprocessor(action_chunk[i])
-        return action_chunk[:self.act_steps, 0].numpy()
+        if self.act_steps is None:
+            return action_chunk[:, 0].numpy()
+        else:
+            return action_chunk[:self.act_steps, 0].numpy()
     
     def reset(self):
         # print("Resetting LeRobotCustomACTPolicy")
