@@ -14,5 +14,25 @@
     {
         "env_id": "SelfDefinedSO101-v1",
         "success_rate": 0.0
+    },
+    {
+        "env_id": "StackCubeSO101-v1",
+        "success_rate": 51.0
+    },
+    {
+        "env_id": "SelfDefinedSO101-v1",
+        "success_rate": 51.0
+    },
+    {
+        "env_id": "SelfDefinedSO101-v1",
+        "success_rate": 30.0
+    },
+    {
+        "env_id": "SelfDefinedSO101-v1",
+        "success_rate": 74.0
+    },
+    {
+        "env_id": "SelfDefinedSO101-v1",
+        "success_rate": 47.0
     }
 ]

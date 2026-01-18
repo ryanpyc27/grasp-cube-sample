@@ -114,7 +114,7 @@ CUDA_VISIBLE_DEVICES=0 python eval_policy.py \
     --env-id LiftCubeSO101-v1 \
     --num-episodes 100
 
-python eval_policy.py \
+CUDA_VISIBLE_DEVICES=1 python eval_policy.py \
     --policy.path log/stack_cube_200samples/checkpoints/last/pretrained_model \
     --policy.robot-type so101 \
     --policy.act-steps 16 \
@@ -149,14 +149,13 @@ python eval_policy.py \
     --num-episodes 100 \
     --policy-type custom_act
 
-python eval_policy.py \
-    --policy.path log/self_defined_100ksteps_custom_vit/checkpoints/060000/pretrained_model \
+CUDA_VISIBLE_DEVICES=1 python eval_policy.py \
+    --policy.path log/self_defined_100ksteps_custom_vit/checkpoints/100000/pretrained_model \
     --policy.robot-type bi_so101 \
     --policy.act-steps 16 \
     --policy.device cuda:0 \
     --env-id SelfDefinedSO101-v1 \
-    --num-episodes 5 \
-    --save-video \
+    --num-episodes 100 \
     --policy-type custom_act
 
 
